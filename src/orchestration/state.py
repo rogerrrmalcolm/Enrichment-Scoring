@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -73,6 +76,28 @@ class RunStateStore:
         return self.state_dir / f"{run_id}.json"
 
     def _atomic_write(self, destination: Path, payload: str) -> None:
-        temp_path = destination.with_suffix(destination.suffix + ".tmp")
-        temp_path.write_text(payload, encoding="utf-8")
-        temp_path.replace(destination)
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        for attempt in range(3):
+            temp_path = self._temp_path(destination)
+            try:
+                temp_path.write_text(payload, encoding="utf-8")
+                temp_path.replace(destination)
+                return
+            except PermissionError:
+                if temp_path.exists():
+                    temp_path.unlink(missing_ok=True)
+                if attempt == 2:
+                    raise
+                time.sleep(0.05 * (attempt + 1))
+
+    def _temp_path(self, destination: Path) -> Path:
+        handle = tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+            dir=str(destination.parent),
+            prefix=f"{destination.stem}.",
+            suffix=f".{os.getpid()}.tmp",
+        )
+        handle.close()
+        return Path(handle.name)

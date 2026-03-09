@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import csv
 import json
 import sqlite3
@@ -17,7 +18,7 @@ class DashboardService:
         return rows[:limit]
 
     def fetch_run_rows(self, run_id: str) -> list[dict[str, Any]]:
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             rows = connection.execute(
                 """
                 SELECT
@@ -52,7 +53,7 @@ class DashboardService:
 
     def fetch_run_summary(self, run_id: str) -> dict[str, Any]:
         rows = self.fetch_run_rows(run_id)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             run_row = connection.execute(
                 """
                 SELECT

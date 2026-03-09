@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import csv
 import sqlite3
 import unittest 
@@ -71,7 +72,7 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
         pipeline = ProspectPipeline(settings)
         run_id = pipeline.run()
 
-        with sqlite3.connect(settings.database_path) as connection:
+        with closing(sqlite3.connect(settings.database_path)) as connection:
             prospect_count = connection.execute(
                 "SELECT COUNT(*) FROM prospects WHERE run_id = ?",
                 (run_id,),
@@ -82,6 +83,72 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
         self.assertTrue(settings.leaderboard_path(run_id).exists())
         self.assertTrue(settings.report_path(run_id).exists())
         self.assertTrue(settings.cache_path.exists())
+
+    def test_two_immediate_runs_get_distinct_run_ids(self) -> None:
+        sandbox_dir = Path.cwd() / "tests" / "tmp"
+        sandbox_dir.mkdir(parents=True, exist_ok=True)
+        root = sandbox_dir / f"fixture_{uuid.uuid4().hex}"
+        (root / "prompts" / "enrichment").mkdir(parents=True)
+        (root / "prompts" / "scoring").mkdir(parents=True)
+        (root / "data" / "incoming").mkdir(parents=True)
+        (root / "data" / "cache").mkdir(parents=True)
+        (root / "data" / "processed").mkdir(parents=True)
+        (root / "data" / "exports").mkdir(parents=True)
+        (root / "storage" / "db").mkdir(parents=True)
+        (root / "storage" / "logs").mkdir(parents=True)
+        (root / "storage" / "state").mkdir(parents=True)
+        csv_path = root / "data" / "incoming" / "challenge_contacts.csv"
+
+        with csv_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(
+                [
+                    "Contact Name",
+                    "Organization",
+                    "Org Type",
+                    "Role",
+                    "Email",
+                    "Region",
+                    "Contact Status",
+                    "Relationship Depth",
+                ]
+            )
+            writer.writerow(
+                [
+                    "Jane Doe",
+                    "Example Foundation",
+                    "Foundation",
+                    "Director of Investments",
+                    "",
+                    "NYC",
+                    "New Contact",
+                    "7",
+                ]
+            )
+        (root / "prompts" / "enrichment" / "system.txt").write_text("Research prompt system.", encoding="utf-8")
+        (root / "prompts" / "enrichment" / "organization_research.txt").write_text(
+            "Org {{organization}} type {{org_type}} regions {{regions}} roles {{roles}} count {{contact_count}} trusted {{trusted_sources}} blocked {{blocked_sources}} corroboration {{minimum_corroboration}}",
+            encoding="utf-8",
+        )
+        (root / "prompts" / "scoring" / "system.txt").write_text("Scoring prompt system.", encoding="utf-8")
+        (root / "prompts" / "scoring" / "prospect_scorecard.txt").write_text(
+            "Score {{organization}} {{org_type}} {{relationship_depth}} {{allocator_profile}} {{external_allocations}} {{sustainability_mandate}} {{brand_signal}} {{emerging_manager_program}} {{aum}}",
+            encoding="utf-8",
+        )
+        (root / "prompts" / "scoring" / "validation_review.txt").write_text(
+            "Validate {{organization}} {{org_type}} {{sector_fit}} {{halo_value}} {{emerging_fit}} {{composite}} {{flags}}",
+            encoding="utf-8",
+        )
+
+        settings = AppSettings.from_root(root)
+        pipeline = ProspectPipeline(settings)
+
+        first_run_id = pipeline.run()
+        second_run_id = pipeline.run()
+
+        self.assertNotEqual(first_run_id, second_run_id)
+        self.assertTrue(settings.run_manifest_path(first_run_id).exists())
+        self.assertTrue(settings.run_manifest_path(second_run_id).exists())
 
 
 if __name__ == "__main__":

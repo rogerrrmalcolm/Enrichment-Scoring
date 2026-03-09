@@ -45,7 +45,7 @@ class ProspectPipeline:
     def run(self) -> str:
         contacts = load_contacts(self.settings.input_csv)
         org_index = build_org_index(contacts)
-        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         results: list[ProspectResult] = []
         manifest = self.state_store.start_run(run_id, len(contacts), len(org_index))
         manifest["runtime_controls"] = {
