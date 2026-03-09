@@ -71,8 +71,7 @@ class ProspectPipeline:
                     self.cache.set(organization_key, enrichment)
                     self.cost_tracker.record_cache_miss()
                     self._record_estimated_cost(
-                        vendor="estimated",
-                        model="org-research-sim",
+                        operation="enrichment",
                         prompt_artifacts=enrichment.raw_payload.get("prompt_artifacts", {}),
                         completion_tokens=420,
                     )
@@ -83,8 +82,7 @@ class ProspectPipeline:
                     self._wait_for_rate_limit(self.scoring_limiter)
                     score = self.scoring_engine.score(contact, enrichment)
                     self._record_estimated_cost(
-                        vendor="estimated",
-                        model="scoring-sim",
+                        operation="scoring",
                         prompt_artifacts=score.metadata.get("prompt_artifacts", {}),
                         completion_tokens=260,
                     )
@@ -116,14 +114,18 @@ class ProspectPipeline:
 
         results.sort(key=lambda item: item.score.composite, reverse=True)
         self.cache.save()
+        cost_summary = self.cost_tracker.snapshot(
+            total_contacts=len(contacts),
+            total_organizations=len(org_index),
+        )
         self.repository.initialize()
         self.repository.save_run(
             run_id=run_id,
             results=results,
             org_count=len(org_index),
-            cost_snapshot=self.cost_tracker.snapshot(),
+            cost_snapshot=cost_summary,
         )
-        self._write_processed_output(run_id, results)
+        self._write_processed_output(run_id, results, cost_summary)
         self.dashboard.export_run_csv(run_id, self.settings.leaderboard_path(run_id))
         self.dashboard.export_run_html(run_id, self.settings.report_path(run_id))
         manifest["artifacts"] = {
@@ -132,7 +134,7 @@ class ProspectPipeline:
             "leaderboard_csv": str(self.settings.leaderboard_path(run_id)),
             "html_report": str(self.settings.report_path(run_id)),
         }
-        manifest["cost_summary"] = self.cost_tracker.snapshot()
+        manifest["cost_summary"] = cost_summary
         self.state_store.complete_run(run_id, manifest)
         self._emit_webhook(
             "run.completed",
@@ -146,35 +148,35 @@ class ProspectPipeline:
         )
         return run_id
 
-    def _write_processed_output(self, run_id: str, results: list[ProspectResult]) -> None:
+    def _write_processed_output(
+        self,
+        run_id: str,
+        results: list[ProspectResult],
+        cost_summary: dict[str, object],
+    ) -> None:
         self.settings.processed_dir.mkdir(parents=True, exist_ok=True)
         output_path = self.settings.processed_output_path(run_id)
         payload = {
             "run_id": run_id,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "results": [asdict(result) for result in results],
-            "cost_summary": self.cost_tracker.snapshot(),
+            "cost_summary": cost_summary,
         }
         output_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def _record_estimated_cost(
         self,
-        vendor: str,
-        model: str,
+        operation: str,
         prompt_artifacts: dict[str, object],
         completion_tokens: int,
     ) -> None:
-        # Until a live AI/search provider is wired in, we keep a transparent
-        # simulated cost model so run-level economics are visible and testable.
+        # The pipeline tracks cost at the operation level so the run summary can
+        # project scaling scenarios for 1k+ prospects and show where spend accumulates.
         prompt_tokens = sum(_estimate_tokens(str(value)) for value in prompt_artifacts.values())
-        prompt_cost = prompt_tokens * 0.000003
-        completion_cost = completion_tokens * 0.000015
-        self.cost_tracker.record(
-            vendor=vendor,
-            model=model,
+        self.cost_tracker.record_operation(
+            operation=operation,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
-            cost_usd=round(prompt_cost + completion_cost, 6),
         )
 
     def _wait_for_rate_limit(self, limiter: TokenBucketRateLimiter) -> None:

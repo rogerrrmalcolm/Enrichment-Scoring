@@ -135,6 +135,7 @@ class DashboardService:
                 _summary_card("Avg Composite", f"{summary['avg_composite']:.2f}"),
                 _summary_card("Flagged", str(summary["flagged_count"])),
                 _summary_card("Estimated Cost", f"${summary['cost'].get('total_cost_usd', 0):.4f}"),
+                _summary_card("Cost / Contact", f"${summary['cost'].get('effective_cost_per_contact_usd', 0):.4f}"),
                 _summary_card("Avoided Cost", f"${summary['cost'].get('avoided_cost_usd', 0):.4f}"),
             ]
         )
@@ -142,6 +143,8 @@ class DashboardService:
             f"<li><strong>{escape(tier)}</strong>: {count}</li>"
             for tier, count in sorted(summary["tier_counts"].items())
         )
+        operation_table = _cost_operation_table(summary["cost"].get("operation_breakdown", {}))
+        projection_table = _cost_projection_table(summary["cost"].get("projections", []))
         top_table = _rows_to_table(top_rows)
         flagged_table = _rows_to_table(flagged_rows, include_flags=True)
         return f"""<!doctype html>
@@ -170,6 +173,14 @@ class DashboardService:
   <div class="section">
     <h2>Tier Mix</h2>
     <ul>{tier_list}</ul>
+  </div>
+  <div class="section">
+    <h2>Cost Breakdown</h2>
+    {operation_table}
+  </div>
+  <div class="section">
+    <h2>Scaling Projection</h2>
+    {projection_table}
   </div>
   <div class="section">
     <h2>Top Prospects</h2>
@@ -210,5 +221,42 @@ def _rows_to_table(rows: list[dict[str, Any]], include_flags: bool = False) -> s
             columns.append(
                 '<div class="flags">' + escape("; ".join(row["validation_flags"]) or "None") + "</div>"
             )
+        body_parts.append("<tr>" + "".join(f"<td>{column}</td>" for column in columns) + "</tr>")
+    return f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(body_parts)}</tbody></table>"
+
+
+def _cost_operation_table(operation_breakdown: dict[str, Any]) -> str:
+    if not operation_breakdown:
+        return "<p>No cost data available.</p>"
+    headers = ["Operation", "Model", "Requests", "Prompt Tokens", "Completion Tokens", "Cost (USD)"]
+    header_html = "".join(f"<th>{escape(header)}</th>" for header in headers)
+    body_parts: list[str] = []
+    for operation_name, payload in sorted(operation_breakdown.items()):
+        columns = [
+            escape(operation_name),
+            escape(str(payload.get("model", "unknown"))),
+            str(payload.get("requests", 0)),
+            str(payload.get("prompt_tokens", 0)),
+            str(payload.get("completion_tokens", 0)),
+            f"{float(payload.get('cost_usd', 0)):.4f}",
+        ]
+        body_parts.append("<tr>" + "".join(f"<td>{column}</td>" for column in columns) + "</tr>")
+    return f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(body_parts)}</tbody></table>"
+
+
+def _cost_projection_table(projections: list[dict[str, Any]]) -> str:
+    if not projections:
+        return "<p>No projections available.</p>"
+    headers = ["Target Contacts", "Estimated Orgs", "Cold Start (USD)", "Warm Cache (USD)", "Savings (USD)"]
+    header_html = "".join(f"<th>{escape(header)}</th>" for header in headers)
+    body_parts: list[str] = []
+    for row in projections:
+        columns = [
+            str(row.get("target_contacts", 0)),
+            str(row.get("estimated_organizations", 0)),
+            f"{float(row.get('cold_start_cost_usd', 0)):.4f}",
+            f"{float(row.get('warm_cache_cost_usd', 0)):.4f}",
+            f"{float(row.get('estimated_savings_usd', 0)):.4f}",
+        ]
         body_parts.append("<tr>" + "".join(f"<td>{column}</td>" for column in columns) + "</tr>")
     return f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(body_parts)}</tbody></table>"
