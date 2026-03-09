@@ -27,7 +27,14 @@ class ProspectPipeline:
         self.settings = settings
         self.logger = logging.getLogger(__name__)
         self.prompts = PromptLibrary(settings.prompt_dir)
-        self.enrichment_provider = StarterEnrichmentProvider(self.prompts)
+        self.enrichment_provider = StarterEnrichmentProvider(
+            self.prompts,
+            enable_live_enrichment=settings.enable_live_enrichment,
+            openai_api_key=settings.openai_api_key,
+            openai_base_url=settings.openai_base_url,
+            openai_model=settings.openai_enrichment_model,
+            timeout_seconds=settings.openai_timeout_seconds,
+        )
         self.scoring_engine = StarterScoringEngine(self.prompts)
         self.validation_engine = ValidationEngine()
         self.cost_tracker = CostTracker()
@@ -52,6 +59,8 @@ class ProspectPipeline:
             "enrichment_requests_per_minute": self.settings.enrichment_requests_per_minute,
             "scoring_requests_per_minute": self.settings.scoring_requests_per_minute,
             "webhook_count": len(self.settings.webhook_urls),
+            "live_enrichment_enabled": self.settings.enable_live_enrichment,
+            "live_enrichment_model": self.settings.openai_enrichment_model if self.settings.enable_live_enrichment else None,
         }
         self._emit_webhook(
             "run.started",
@@ -65,6 +74,8 @@ class ProspectPipeline:
             for organization_key, org_contacts in org_index.items():
                 try:
                     enrichment = self.cache.get(organization_key)
+                    if enrichment is not None and self.enrichment_provider.should_refresh_cached_record(enrichment):
+                        enrichment = None
                     if enrichment is None:
                         self._wait_for_rate_limit(self.enrichment_limiter)
                         enrichment = self.enrichment_provider.enrich(organization_key, org_contacts)
@@ -74,7 +85,7 @@ class ProspectPipeline:
                             operation="enrichment",
                             prompt_artifacts=enrichment.raw_payload.get("prompt_artifacts", {}),
                             completion_tokens=420,
-                            tool_calls=1,
+                            tool_calls=int(enrichment.raw_payload.get("estimated_tool_calls", 0)),
                         )
                     else:
                         self.cost_tracker.record_cache_hit(estimated_saved_cost_usd=0.012)

@@ -19,3 +19,5 @@ Return structured notes covering:
 7. Confidence level and missing data.
 8. Which trusted source types supported the conclusion.
 9. For foundations/endowments/pensions, whether the evidence came from investment-related pages versus mission/program pages.
+
+If the caller requests JSON, return JSON only and include exact source URLs for each dimension.

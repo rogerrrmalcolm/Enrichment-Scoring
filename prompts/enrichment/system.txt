@@ -22,3 +22,4 @@ Always research and return:
 - evidence of backing emerging managers, Fund I/Fund II, seeding, or flexible manager selection
 
 Be conservative. If evidence is missing, say that directly instead of inferring.
+When asked for structured output, return valid JSON only and attach exact source URLs to each claim you rely on.

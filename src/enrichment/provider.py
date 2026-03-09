@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 from collections import Counter
+from dataclasses import asdict, dataclass
+import json
+import re
 from typing import Protocol, Sequence
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from src.models.entities import ContactRecord, EnrichmentRecord, Evidence
 from src.utils.prompts import PromptLibrary
@@ -95,6 +100,12 @@ SERVICE_PROVIDER_KEYWORDS = {
     "lending",
 }
 
+HEURISTIC_ENRICHMENT_MODE = "heuristic_offline"
+LIVE_ENRICHMENT_MODE = "live_openai_web_search"
+DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1/responses"
+DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
+DEFAULT_OPENAI_TIMEOUT_SECONDS = 45.0
+
 
 @dataclass(frozen=True, slots=True)
 class SourcePolicy:
@@ -112,31 +123,60 @@ class EnrichmentProvider(Protocol):
     def enrich(self, organization_key: str, contacts: Sequence[ContactRecord]) -> EnrichmentRecord:
         ...
 
+    def should_refresh_cached_record(self, record: EnrichmentRecord) -> bool:
+        ...
+
 
 class StarterEnrichmentProvider:
-    def __init__(self, prompts: PromptLibrary) -> None:
+    def __init__(
+        self,
+        prompts: PromptLibrary,
+        *,
+        enable_live_enrichment: bool = False,
+        openai_api_key: str | None = None,
+        openai_base_url: str = DEFAULT_OPENAI_BASE_URL,
+        openai_model: str = DEFAULT_OPENAI_MODEL,
+        timeout_seconds: float = DEFAULT_OPENAI_TIMEOUT_SECONDS,
+    ) -> None:
         self.prompts = prompts
         self.source_policy = _default_source_policy()
+        self.enable_live_enrichment = enable_live_enrichment
+        self.openai_api_key = openai_api_key
+        self.openai_base_url = openai_base_url
+        self.openai_model = openai_model
+        self.timeout_seconds = timeout_seconds
 
     def enrich(self, organization_key: str, contacts: Sequence[ContactRecord]) -> EnrichmentRecord:
+        if self._can_use_live_enrichment():
+            try:
+                return self._live_enrich(organization_key, contacts)
+            except Exception as exc:
+                fallback = self._heuristic_enrich(organization_key, contacts)
+                fallback.notes.insert(
+                    0,
+                    f"Live OpenAI web-search enrichment failed and the provider fell back to the offline heuristic path: {exc}",
+                )
+                fallback.raw_payload["live_error"] = str(exc)
+                return fallback
+        return self._heuristic_enrich(organization_key, contacts)
+
+    def should_refresh_cached_record(self, record: EnrichmentRecord) -> bool:
+        cached_mode = str(record.raw_payload.get("enrichment_mode", ""))
+        return self._can_use_live_enrichment() and cached_mode != LIVE_ENRICHMENT_MODE
+
+    def _can_use_live_enrichment(self) -> bool:
+        return self.enable_live_enrichment and bool(self.openai_api_key)
+
+    def _heuristic_enrich(self, organization_key: str, contacts: Sequence[ContactRecord]) -> EnrichmentRecord:
         primary = contacts[0]
         org_type = _dominant_org_type(contacts)
-        prompt_context = {
-            "organization": primary.organization,
-            "org_type": primary.org_type,
-            "regions": ", ".join(sorted({contact.region for contact in contacts})),
-            "roles": ", ".join(sorted({contact.role for contact in contacts})),
-            "contact_count": len(contacts),
-            "trusted_sources": _format_trusted_sources(self.source_policy),
-            "blocked_sources": ", ".join(self.source_policy.blocked_source_patterns),
-            "minimum_corroboration": self.source_policy.minimum_corroborating_sources,
-        }
+        prompt_context = _prompt_context(primary, contacts, self.source_policy)
         signals = _collect_signals(primary.organization, contacts, org_type)
         anchor = CALIBRATION_RESEARCH_PROFILES.get(organization_key)
         notes = [
             "This enrichment pass is heuristic and prompt-backed, but still offline.",
-            "Swap this provider with a live search/LLM implementation to replace the heuristic evidence buckets.",
-            "The future live search path is constrained by a trusted-source policy and corroboration rules.",
+            "Set PACEZERO_ENABLE_LIVE_ENRICHMENT=true with a valid OPENAI_API_KEY to switch to live web-search enrichment.",
+            "The live search path is constrained by the same trusted-source policy and corroboration rules stored in this record.",
             "Org type alone is not treated as conclusive proof of external-manager allocation; explicit LP evidence remains the standard.",
         ]
         if anchor:
@@ -171,12 +211,206 @@ class StarterEnrichmentProvider:
                 "signals": signals,
                 "research_methodology": methodology_summary(),
                 "source_policy": self.source_policy.as_dict(),
+                "enrichment_mode": HEURISTIC_ENRICHMENT_MODE,
+                "estimated_tool_calls": 0,
                 "prompt_artifacts": {
                     "system_prompt": self.prompts.load("enrichment/system.txt"),
                     "research_prompt": self.prompts.render("enrichment/organization_research.txt", **prompt_context),
                 },
             },
         )
+
+    def _live_enrich(self, organization_key: str, contacts: Sequence[ContactRecord]) -> EnrichmentRecord:
+        primary = contacts[0]
+        org_type = _dominant_org_type(contacts)
+        prompt_context = _prompt_context(primary, contacts, self.source_policy)
+        signals = _collect_signals(primary.organization, contacts, org_type)
+        system_prompt = self.prompts.load("enrichment/system.txt")
+        research_prompt = self.prompts.render("enrichment/organization_research.txt", **prompt_context)
+        request_payload = self._build_live_request_payload(system_prompt, research_prompt, primary, contacts)
+        response_payload = self._request_live_response(request_payload)
+        response_text = _extract_response_text(response_payload)
+        structured = _extract_json_object(response_text)
+        if not structured:
+            raise ValueError("OpenAI response did not contain parseable JSON.")
+
+        response_urls = _extract_response_source_urls(response_payload)
+        filtered_response_urls, blocked_response_urls = _partition_urls(response_urls, self.source_policy)
+        source_quality = _build_source_quality(structured, filtered_response_urls, blocked_response_urls, self.source_policy)
+
+        fallback = self._heuristic_enrich(organization_key, contacts)
+        external_allocations = _evidence_from_live_field(
+            structured.get("external_allocations"),
+            fallback_summary=fallback.external_allocations.summary,
+            fallback_urls=[],
+            policy=self.source_policy,
+        )
+        sustainability_mandate = _evidence_from_live_field(
+            structured.get("sustainability_mandate"),
+            fallback_summary=fallback.sustainability_mandate.summary,
+            fallback_urls=[],
+            policy=self.source_policy,
+        )
+        brand_signal = _evidence_from_live_field(
+            structured.get("brand_signal"),
+            fallback_summary=fallback.brand_signal.summary,
+            fallback_urls=[],
+            policy=self.source_policy,
+        )
+        emerging_manager_program = _evidence_from_live_field(
+            structured.get("emerging_manager_program"),
+            fallback_summary=fallback.emerging_manager_program.summary,
+            fallback_urls=[],
+            policy=self.source_policy,
+        )
+
+        organization_type_value = str(structured.get("organization_type", "")).strip() or org_type.title()
+        allocator_profile_value = str(structured.get("allocator_profile", "")).strip() or _allocator_profile(org_type)
+        aum_value = _parse_aum_value(structured.get("aum"))
+        live_notes = _live_notes(structured, source_quality)
+
+        return EnrichmentRecord(
+            organization=primary.organization,
+            canonical_org_name=organization_key,
+            organization_type=organization_type_value,
+            allocator_profile=allocator_profile_value,
+            external_allocations=external_allocations,
+            sustainability_mandate=sustainability_mandate,
+            aum=aum_value,
+            brand_signal=brand_signal,
+            emerging_manager_program=emerging_manager_program,
+            notes=live_notes,
+            raw_payload={
+                "contact_count": len(contacts),
+                "roles": sorted({contact.role for contact in contacts}),
+                "regions": sorted({contact.region for contact in contacts}),
+                "signals": signals,
+                "research_methodology": methodology_summary(),
+                "source_policy": self.source_policy.as_dict(),
+                "enrichment_mode": LIVE_ENRICHMENT_MODE,
+                "estimated_tool_calls": 1,
+                "source_quality": source_quality,
+                "response_sources": filtered_response_urls,
+                "blocked_response_sources": blocked_response_urls,
+                "structured_research": structured,
+                "prompt_artifacts": {
+                    "system_prompt": system_prompt,
+                    "research_prompt": research_prompt,
+                    "model": self.openai_model,
+                },
+            },
+        )
+
+    def _build_live_request_payload(
+        self,
+        system_prompt: str,
+        research_prompt: str,
+        primary: ContactRecord,
+        contacts: Sequence[ContactRecord],
+    ) -> dict[str, object]:
+        user_prompt = _live_user_prompt(
+            research_prompt=research_prompt,
+            organization=primary.organization,
+            org_type=primary.org_type,
+            roles=sorted({contact.role for contact in contacts}),
+            regions=sorted({contact.region for contact in contacts}),
+            policy=self.source_policy,
+        )
+        return {
+            "model": self.openai_model,
+            "tools": [{"type": "web_search"}],
+            "include": [
+                "web_search_call.action.sources",
+                "message.output_text.annotations",
+            ],
+            "input": [
+                {
+                    "role": "system",
+                    "content": [{"type": "input_text", "text": system_prompt}],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": user_prompt}],
+                },
+            ],
+        }
+
+    def _request_live_response(self, request_payload: dict[str, object]) -> dict[str, object]:
+        if not self.openai_api_key:
+            raise ValueError("OPENAI_API_KEY is missing.")
+        request = Request(
+            self.openai_base_url or DEFAULT_OPENAI_BASE_URL,
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.openai_api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                payload = response.read().decode("utf-8")
+        except HTTPError as exc:
+            payload = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"OpenAI enrichment request failed with HTTP {exc.code}: {payload}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"OpenAI enrichment request failed: {exc.reason}") from exc
+        return json.loads(payload)
+
+
+def _prompt_context(
+    primary: ContactRecord,
+    contacts: Sequence[ContactRecord],
+    policy: SourcePolicy,
+) -> dict[str, object]:
+    return {
+        "organization": primary.organization,
+        "org_type": primary.org_type,
+        "regions": ", ".join(sorted({contact.region for contact in contacts})),
+        "roles": ", ".join(sorted({contact.role for contact in contacts})),
+        "contact_count": len(contacts),
+        "trusted_sources": _format_trusted_sources(policy),
+        "blocked_sources": ", ".join(policy.blocked_source_patterns),
+        "minimum_corroboration": policy.minimum_corroborating_sources,
+    }
+
+
+def _live_user_prompt(
+    *,
+    research_prompt: str,
+    organization: str,
+    org_type: str,
+    roles: Sequence[str],
+    regions: Sequence[str],
+    policy: SourcePolicy,
+) -> str:
+    return (
+        f"{research_prompt}\n\n"
+        "Use the web_search tool and rely on trusted public sources only.\n"
+        "Prefer official organization pages, annual reports, audited financial statements, board materials, filings, and other institutional sources.\n"
+        "Ignore social media, lead-generation pages, SEO directories, generic blogs, sponsored content, and unattributed commentary.\n"
+        "If a dimension lacks enough trusted public evidence, say that directly and set sufficient_evidence to false instead of guessing.\n"
+        f"Minimum corroboration threshold: {policy.minimum_corroborating_sources} trusted sources unless a primary filing directly establishes the fact.\n"
+        f"Observed organization: {organization}\n"
+        f"Observed CRM org type: {org_type}\n"
+        f"Observed roles: {', '.join(roles)}\n"
+        f"Observed regions: {', '.join(regions)}\n\n"
+        "Return JSON only. Do not wrap it in markdown. Use this exact shape:\n"
+        "{\n"
+        '  "organization_type": "string",\n'
+        '  "allocator_profile": "string",\n'
+        '  "external_allocations": {"summary": "string", "confidence": "low|medium|high", "sufficient_evidence": true, "citations": ["https://..."]},\n'
+        '  "sustainability_mandate": {"summary": "string", "confidence": "low|medium|high", "sufficient_evidence": true, "citations": ["https://..."]},\n'
+        '  "aum": {"value": "string or null", "summary": "string", "confidence": "low|medium|high", "sufficient_evidence": true, "citations": ["https://..."]},\n'
+        '  "brand_signal": {"summary": "string", "confidence": "low|medium|high", "sufficient_evidence": true, "citations": ["https://..."]},\n'
+        '  "emerging_manager_program": {"summary": "string", "confidence": "low|medium|high", "sufficient_evidence": true, "citations": ["https://..."]},\n'
+        '  "notes": ["string"],\n'
+        '  "source_quality": {"gaps": ["string"], "corroborated_claims": ["string"], "needs_manual_review": true}\n'
+        "}\n"
+        "Citations must be the exact URLs you relied on.\n"
+        "Do not claim allocator status from org type alone. Separate mission language from investable mandate language.\n"
+        "Be explicit about whether the organization is an LP allocator, a GP, a lender, an advisor, or a mixed case."
+    )
 
 
 def _dominant_org_type(contacts: Sequence[ContactRecord]) -> str:
@@ -264,8 +498,6 @@ def _collect_signals(
     contacts: Sequence[ContactRecord],
     org_type: str,
 ) -> dict[str, list[str]]:
-    # These signal buckets are intentionally explicit so the scoring layer can
-    # reason about why a score moved up or down instead of operating on opaque text.
     signals = {
         "allocator": [],
         "service_provider": [],
@@ -360,17 +592,27 @@ def _default_source_policy() -> SourcePolicy:
             "social media",
             "content farm",
             "generic people-search site",
-            "SEO directory",
+            "seo directory",
             "unattributed blog",
             "forum post",
             "sponsored content",
+            "linkedin.com",
+            "facebook.com",
+            "instagram.com",
+            "x.com",
+            "twitter.com",
+            "tiktok.com",
+            "reddit.com",
+            "medium.com",
+            "substack.com",
+            "blogspot.",
         ),
         minimum_corroborating_sources=2,
         methodology_steps=(
             "Start with primary organization-controlled sources.",
             "Use regulatory or audited documents to confirm allocator status and AUM.",
             "Use reputable secondary coverage only to support, not replace, primary evidence.",
-            "Corroborate material claims with at least two trusted sources unless the claim comes from a primary filing.",
+            "Corroborate material claims with at least two trusted sources unless a primary filing or official report already establishes the fact.",
             "Drop weak or contradictory evidence instead of averaging it into the score.",
         ),
         evidence_rules=(
@@ -386,8 +628,191 @@ def methodology_summary() -> list[str]:
     policy = _default_source_policy()
     return [
         "Prefer primary and regulatory sources over commentary.",
-        "Corroborate material claims unless a primary filing already establishes the fact.",
+        "Corroborate material claims unless a primary filing or official report already establishes the fact.",
         "Down-rank noisy or marketing-heavy sources.",
         "Separate charitable mission language from investable mandate language.",
         f"Minimum corroboration threshold: {policy.minimum_corroborating_sources} trusted sources.",
     ]
+
+
+def _extract_response_text(payload: dict[str, object]) -> str:
+    direct_text = payload.get("output_text")
+    if isinstance(direct_text, str) and direct_text.strip():
+        return direct_text.strip()
+
+    chunks: list[str] = []
+    for item in payload.get("output", []):
+        if not isinstance(item, dict) or item.get("type") != "message":
+            continue
+        for content in item.get("content", []):
+            if not isinstance(content, dict):
+                continue
+            if content.get("type") in {"output_text", "text"}:
+                text = content.get("text")
+                if isinstance(text, str) and text.strip():
+                    chunks.append(text.strip())
+    return "\n".join(chunks).strip()
+
+
+def _extract_response_source_urls(payload: dict[str, object]) -> list[str]:
+    urls: list[str] = []
+    for item in payload.get("output", []):
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") == "web_search_call":
+            action = item.get("action", {})
+            if isinstance(action, dict):
+                urls.extend(_urls_from_source_objects(action.get("sources", [])))
+        if item.get("type") == "message":
+            for content in item.get("content", []):
+                if not isinstance(content, dict):
+                    continue
+                for annotation in content.get("annotations", []):
+                    if not isinstance(annotation, dict):
+                        continue
+                    url = annotation.get("url")
+                    if isinstance(url, str) and url.strip():
+                        urls.append(url.strip())
+    return _dedupe_strings(urls)
+
+
+def _urls_from_source_objects(raw_sources: object) -> list[str]:
+    urls: list[str] = []
+    if not isinstance(raw_sources, list):
+        return urls
+    for source in raw_sources:
+        if not isinstance(source, dict):
+            continue
+        url = source.get("url")
+        if isinstance(url, str) and url.strip():
+            urls.append(url.strip())
+    return urls
+
+
+def _extract_json_object(text: str) -> dict[str, object] | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+    candidates = [stripped]
+    candidates.extend(re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", stripped, flags=re.DOTALL))
+    brace_match = re.search(r"\{.*\}", stripped, flags=re.DOTALL)
+    if brace_match:
+        candidates.append(brace_match.group(0))
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    return None
+
+
+def _partition_urls(urls: Sequence[str], policy: SourcePolicy) -> tuple[list[str], list[str]]:
+    allowed: list[str] = []
+    blocked: list[str] = []
+    for url in urls:
+        normalized = url.strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if any(pattern in lowered for pattern in policy.blocked_source_patterns):
+            blocked.append(normalized)
+            continue
+        allowed.append(normalized)
+    return _dedupe_strings(allowed), _dedupe_strings(blocked)
+
+
+def _build_source_quality(
+    structured: dict[str, object],
+    response_urls: list[str],
+    blocked_urls: list[str],
+    policy: SourcePolicy,
+) -> dict[str, object]:
+    source_quality = structured.get("source_quality", {})
+    gaps = list(source_quality.get("gaps", [])) if isinstance(source_quality, dict) else []
+    corroborated_claims = list(source_quality.get("corroborated_claims", [])) if isinstance(source_quality, dict) else []
+    needs_manual_review = bool(source_quality.get("needs_manual_review")) if isinstance(source_quality, dict) else False
+    return {
+        "trusted_source_count": len(response_urls),
+        "trusted_domains": sorted({_domain_from_url(url) for url in response_urls if _domain_from_url(url)}),
+        "blocked_source_count": len(blocked_urls),
+        "blocked_sources": blocked_urls,
+        "minimum_corroboration_required": policy.minimum_corroborating_sources,
+        "minimum_corroboration_met": len(response_urls) >= policy.minimum_corroborating_sources,
+        "gaps": [str(gap) for gap in gaps],
+        "corroborated_claims": [str(claim) for claim in corroborated_claims],
+        "needs_manual_review": needs_manual_review or len(response_urls) < policy.minimum_corroborating_sources,
+    }
+
+
+def _evidence_from_live_field(
+    payload: object,
+    *,
+    fallback_summary: str,
+    fallback_urls: list[str],
+    policy: SourcePolicy,
+) -> Evidence:
+    field = payload if isinstance(payload, dict) else {}
+    summary = str(field.get("summary", "")).strip() or fallback_summary
+    sufficient_evidence = bool(field.get("sufficient_evidence"))
+    citations, _blocked = _partition_urls([str(url) for url in field.get("citations", [])], policy)
+    if not citations and fallback_urls:
+        citations = list(fallback_urls)
+    if not sufficient_evidence or not citations:
+        summary = _prefix_insufficient_evidence(summary)
+    return Evidence(summary=summary, sources=citations)
+
+
+def _prefix_insufficient_evidence(summary: str) -> str:
+    if not summary:
+        return "Insufficient public evidence was found for this dimension."
+    if "insufficient public evidence" in summary.lower():
+        return summary
+    return f"Insufficient public evidence. {summary}"
+
+
+def _parse_aum_value(payload: object) -> str | None:
+    if isinstance(payload, dict):
+        value = payload.get("value")
+        if value is None:
+            return None
+        parsed = str(value).strip()
+        return parsed or None
+    if payload is None:
+        return None
+    parsed = str(payload).strip()
+    return parsed or None
+
+
+def _live_notes(structured: dict[str, object], source_quality: dict[str, object]) -> list[str]:
+    notes = [
+        "Live enrichment used the OpenAI Responses API with web_search enabled.",
+        "The provider asked the model to rely on primary, regulatory, and institutional sources and to reject noisy sources.",
+        "Field-level summaries were kept conservative when citations were missing or the model marked evidence as insufficient.",
+    ]
+    for note in structured.get("notes", []):
+        notes.append(str(note))
+    if not bool(source_quality.get("minimum_corroboration_met")):
+        notes.append("Minimum corroboration was not met across trusted cited sources; manual review is recommended.")
+    if bool(source_quality.get("needs_manual_review")):
+        notes.append("Source quality checks still recommend manual review for at least one claim.")
+    return notes
+
+
+def _domain_from_url(url: str) -> str:
+    try:
+        return urlparse(url).netloc.lower()
+    except ValueError:
+        return ""
+
+
+def _dedupe_strings(values: Sequence[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped

@@ -23,6 +23,11 @@ class AppSettings:
     api_host: str
     api_port: int
     api_key: str | None
+    enable_live_enrichment: bool
+    openai_api_key: str | None
+    openai_base_url: str
+    openai_enrichment_model: str
+    openai_timeout_seconds: float
 
     @classmethod
     def from_root(cls, root_dir: Path | None = None) -> "AppSettings":
@@ -44,6 +49,11 @@ class AppSettings:
             api_host=os.getenv("PACEZERO_API_HOST", "127.0.0.1"),
             api_port=_env_port("PACEZERO_API_PORT", 8000),
             api_key=_optional_env("PACEZERO_API_KEY"),
+            enable_live_enrichment=_env_bool("PACEZERO_ENABLE_LIVE_ENRICHMENT", False),
+            openai_api_key=_optional_env("OPENAI_API_KEY"),
+            openai_base_url=os.getenv("PACEZERO_OPENAI_BASE_URL", "https://api.openai.com/v1/responses").strip(),
+            openai_enrichment_model=os.getenv("PACEZERO_OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini",
+            openai_timeout_seconds=_env_positive_float("PACEZERO_OPENAI_TIMEOUT_SECONDS", 45.0),
         )
 
     def processed_output_path(self, run_id: str) -> Path:
@@ -96,3 +106,12 @@ def _env_port(name: str, default: int) -> int:
 def _optional_env(name: str) -> str | None:
     value = os.getenv(name, "").strip()
     return value or None
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name, "true" if default else "false").strip().lower()
+    if raw_value in {"1", "true", "yes", "on"}:
+        return True
+    if raw_value in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean-like value, got {raw_value!r}.")
