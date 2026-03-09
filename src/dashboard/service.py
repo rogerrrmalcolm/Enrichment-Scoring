@@ -115,9 +115,10 @@ class DashboardService:
             return
         summary = self.fetch_run_summary(run_id)
         flagged_rows = [row for row in rows if row["validation_flags"]]
+        methodology = _extract_methodology(rows)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(
-            self._build_html(summary, rows[:25], flagged_rows[:25]),
+            self._build_html(summary, rows[:25], flagged_rows[:25], methodology),
             encoding="utf-8",
         )
 
@@ -126,6 +127,7 @@ class DashboardService:
         summary: dict[str, Any],
         top_rows: list[dict[str, Any]],
         flagged_rows: list[dict[str, Any]],
+        methodology: dict[str, Any],
     ) -> str:
         # Keep the report static and dependency-free so it is easy to share.
         cards = "".join(
@@ -145,6 +147,7 @@ class DashboardService:
         )
         operation_table = _cost_operation_table(summary["cost"].get("operation_breakdown", {}))
         projection_table = _cost_projection_table(summary["cost"].get("projections", []))
+        methodology_html = _methodology_section(methodology)
         top_table = _rows_to_table(top_rows)
         flagged_table = _rows_to_table(flagged_rows, include_flags=True)
         return f"""<!doctype html>
@@ -181,6 +184,10 @@ class DashboardService:
   <div class="section">
     <h2>Scaling Projection</h2>
     {projection_table}
+  </div>
+  <div class="section">
+    <h2>Research Method</h2>
+    {methodology_html}
   </div>
   <div class="section">
     <h2>Top Prospects</h2>
@@ -272,3 +279,35 @@ def _cost_projection_table(projections: list[dict[str, Any]]) -> str:
         ]
         body_parts.append("<tr>" + "".join(f"<td>{column}</td>" for column in columns) + "</tr>")
     return f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(body_parts)}</tbody></table>"
+
+
+def _extract_methodology(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return {}
+    enrichment = rows[0].get("enrichment", {})
+    raw_payload = enrichment.get("raw_payload", {})
+    return {
+        "research_methodology": raw_payload.get("research_methodology", []),
+        "source_policy": raw_payload.get("source_policy", {}),
+    }
+
+
+def _methodology_section(methodology: dict[str, Any]) -> str:
+    steps = methodology.get("research_methodology", [])
+    source_policy = methodology.get("source_policy", {})
+    if not steps and not source_policy:
+        return "<p>No methodology recorded.</p>"
+    step_list = "".join(f"<li>{escape(str(step))}</li>" for step in steps)
+    blocked = ", ".join(source_policy.get("blocked_source_patterns", []))
+    corroboration = source_policy.get("minimum_corroborating_sources", "Unknown")
+    tiers = source_policy.get("trusted_source_tiers", {})
+    tier_list = "".join(
+        f"<li><strong>{escape(str(tier))}</strong>: {escape(', '.join(values))}</li>"
+        for tier, values in tiers.items()
+    )
+    return (
+        f"<p><strong>Minimum corroboration:</strong> {escape(str(corroboration))} trusted sources for material claims.</p>"
+        f"<p><strong>Blocked/noisy sources:</strong> {escape(blocked or 'None recorded')}</p>"
+        f"<h3>Method Steps</h3><ul>{step_list}</ul>"
+        f"<h3>Trusted Source Tiers</h3><ul>{tier_list}</ul>"
+    )

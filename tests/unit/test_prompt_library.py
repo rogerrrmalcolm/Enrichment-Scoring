@@ -17,6 +17,9 @@ class PromptLibraryTests(unittest.TestCase):
             regions="NYC",
             roles="Director of Investments",
             contact_count=1,
+            trusted_sources="tier_1_primary: official website",
+            blocked_sources="social media",
+            minimum_corroboration=2,
         )
 
         self.assertIn("Example Foundation", rendered)

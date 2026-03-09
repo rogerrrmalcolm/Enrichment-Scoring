@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass
 from collections import Counter
 from typing import Protocol, Sequence
 
@@ -82,6 +83,18 @@ SERVICE_PROVIDER_KEYWORDS = {
 }
 
 
+@dataclass(frozen=True, slots=True)
+class SourcePolicy:
+    trusted_source_tiers: dict[str, tuple[str, ...]]
+    blocked_source_patterns: tuple[str, ...]
+    minimum_corroborating_sources: int
+    methodology_steps: tuple[str, ...]
+    evidence_rules: tuple[str, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
 class EnrichmentProvider(Protocol):
     def enrich(self, organization_key: str, contacts: Sequence[ContactRecord]) -> EnrichmentRecord:
         ...
@@ -90,6 +103,7 @@ class EnrichmentProvider(Protocol):
 class StarterEnrichmentProvider:
     def __init__(self, prompts: PromptLibrary) -> None:
         self.prompts = prompts
+        self.source_policy = _default_source_policy()
 
     def enrich(self, organization_key: str, contacts: Sequence[ContactRecord]) -> EnrichmentRecord:
         primary = contacts[0]
@@ -100,12 +114,16 @@ class StarterEnrichmentProvider:
             "regions": ", ".join(sorted({contact.region for contact in contacts})),
             "roles": ", ".join(sorted({contact.role for contact in contacts})),
             "contact_count": len(contacts),
+            "trusted_sources": _format_trusted_sources(self.source_policy),
+            "blocked_sources": ", ".join(self.source_policy.blocked_source_patterns),
+            "minimum_corroboration": self.source_policy.minimum_corroborating_sources,
         }
         signals = _collect_signals(primary.organization, contacts, org_type)
         anchor = CALIBRATION_RESEARCH_PROFILES.get(organization_key)
         notes = [
             "This enrichment pass is heuristic and prompt-backed, but still offline.",
             "Swap this provider with a live search/LLM implementation to replace the heuristic evidence buckets.",
+            "The future live search path is constrained by a trusted-source policy and corroboration rules.",
         ]
         if anchor:
             notes.append("Calibration anchor matched: challenge benchmark evidence was injected for this organization.")
@@ -137,6 +155,8 @@ class StarterEnrichmentProvider:
                 "roles": sorted({contact.role for contact in contacts}),
                 "regions": sorted({contact.region for contact in contacts}),
                 "signals": signals,
+                "research_methodology": methodology_summary(),
+                "source_policy": self.source_policy.as_dict(),
                 "prompt_artifacts": {
                     "system_prompt": self.prompts.load("enrichment/system.txt"),
                     "research_prompt": self.prompts.render("enrichment/organization_research.txt", **prompt_context),
@@ -287,3 +307,71 @@ def _aum_for(anchor: dict[str, str] | None) -> str | None:
     if anchor is None:
         return None
     return anchor["aum"]
+
+
+def _format_trusted_sources(policy: SourcePolicy) -> str:
+    parts: list[str] = []
+    for tier, labels in policy.trusted_source_tiers.items():
+        parts.append(f"{tier}: {', '.join(labels)}")
+    return " | ".join(parts)
+
+
+def _default_source_policy() -> SourcePolicy:
+    return SourcePolicy(
+        trusted_source_tiers={
+            "tier_1_primary": (
+                "official organization website",
+                "annual report",
+                "investment policy statement",
+                "regulatory filing",
+                "foundation or endowment financial statement",
+                "public pension board materials",
+            ),
+            "tier_2_institutional": (
+                "university investment office page",
+                "SEC or government registry",
+                "reputable allocator database",
+                "audited financial statement",
+                "conference speaker profile published by the organization",
+            ),
+            "tier_3_reputable_secondary": (
+                "major financial press",
+                "institutional investor publication",
+                "industry association page",
+            ),
+        },
+        blocked_source_patterns=(
+            "social media",
+            "content farm",
+            "generic people-search site",
+            "SEO directory",
+            "unattributed blog",
+            "forum post",
+            "sponsored content",
+        ),
+        minimum_corroborating_sources=2,
+        methodology_steps=(
+            "Start with primary organization-controlled sources.",
+            "Use regulatory or audited documents to confirm allocator status and AUM.",
+            "Use reputable secondary coverage only to support, not replace, primary evidence.",
+            "Corroborate material claims with at least two trusted sources unless the claim comes from a primary filing.",
+            "Drop weak or contradictory evidence instead of averaging it into the score.",
+        ),
+        evidence_rules=(
+            "Do not cite social posts, content farms, or lead-gen directories.",
+            "Treat mission pages separately from investment-office pages for foundations and endowments.",
+            "Require explicit external-manager allocation evidence before classifying a mixed organization as an LP.",
+            "Mark confidence down when the evidence is thin, outdated, or only indirectly related to investing.",
+        ),
+    )
+
+
+def methodology_summary() -> list[str]:
+    policy = _default_source_policy()
+    return [
+        "Prefer primary and regulatory sources over commentary.",
+        "Corroborate material claims unless a primary filing already establishes the fact.",
+        "Down-rank noisy or marketing-heavy sources.",
+        "Separate charitable mission language from investable mandate language.",
+        f"Minimum corroboration threshold: {policy.minimum_corroborating_sources} trusted sources.",
+    ]

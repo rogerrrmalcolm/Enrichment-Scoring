@@ -54,7 +54,7 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
             )
         (root / "prompts" / "enrichment" / "system.txt").write_text("Research prompt system.", encoding="utf-8")
         (root / "prompts" / "enrichment" / "organization_research.txt").write_text(
-            "Org {{organization}} type {{org_type}} regions {{regions}} roles {{roles}} count {{contact_count}}",
+            "Org {{organization}} type {{org_type}} regions {{regions}} roles {{roles}} count {{contact_count}} trusted {{trusted_sources}} blocked {{blocked_sources}} corroboration {{minimum_corroboration}}",
             encoding="utf-8",
         )
         (root / "prompts" / "scoring" / "system.txt").write_text("Scoring prompt system.", encoding="utf-8")

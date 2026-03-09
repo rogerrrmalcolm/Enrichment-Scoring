@@ -5,6 +5,9 @@ Observed org type from CRM: {{org_type}}
 Known regions: {{regions}}
 Known roles: {{roles}}
 Contact count in CRM: {{contact_count}}
+Trusted source tiers: {{trusted_sources}}
+Blocked/noisy source types: {{blocked_sources}}
+Minimum corroboration threshold: {{minimum_corroboration}}
 
 Return structured notes covering:
 1. Whether this entity is an LP allocator, GP, lender, advisor, or mixed case.
@@ -14,3 +17,4 @@ Return structured notes covering:
 5. Brand/halo assessment.
 6. Emerging manager openness.
 7. Confidence level and missing data.
+8. Which trusted source types supported the conclusion.

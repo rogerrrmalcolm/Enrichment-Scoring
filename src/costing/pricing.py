@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-
+#PRICING OF ALL THE DATACLASSES, WORKS WITH PRICING.PY
 @dataclass(frozen=True, slots=True)
 class OperationPricing:
     operation: str
