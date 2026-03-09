@@ -20,6 +20,8 @@ class AppSettings:
     scoring_requests_per_minute: int
     webhook_urls: tuple[str, ...]
     webhook_timeout_seconds: float
+    api_host: str
+    api_port: int
 
     @classmethod
     def from_root(cls, root_dir: Path | None = None) -> "AppSettings":
@@ -38,6 +40,8 @@ class AppSettings:
             scoring_requests_per_minute=int(os.getenv("PACEZERO_SCORING_RPM", "120")),
             webhook_urls=_parse_webhook_urls(os.getenv("PACEZERO_WEBHOOK_URLS", "")),
             webhook_timeout_seconds=float(os.getenv("PACEZERO_WEBHOOK_TIMEOUT_SECONDS", "5.0")),
+            api_host=os.getenv("PACEZERO_API_HOST", "127.0.0.1"),
+            api_port=int(os.getenv("PACEZERO_API_PORT", "8000")),
         )
 
     def processed_output_path(self, run_id: str) -> Path:

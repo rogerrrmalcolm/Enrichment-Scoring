@@ -31,6 +31,18 @@ class RunStateStore:
         manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
         self._write(run_id, manifest)
 
+    def load(self, run_id: str) -> dict[str, object] | None:
+        run_path = self.state_dir / f"{run_id}.json"
+        if not run_path.exists():
+            return None
+        return json.loads(run_path.read_text(encoding="utf-8"))
+
+    def load_latest(self) -> dict[str, object] | None:
+        latest_path = self.state_dir / "latest_run.json"
+        if not latest_path.exists():
+            return None
+        return json.loads(latest_path.read_text(encoding="utf-8"))
+
     def _write(self, run_id: str, manifest: dict[str, object]) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         run_path = self.state_dir / f"{run_id}.json"
