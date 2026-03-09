@@ -58,6 +58,55 @@ class StarterScoringEngineTests(unittest.TestCase):
         self.assertLess(result.sector_fit.value, 4.0)
         self.assertIn(result.tier, {"WEAK FIT", "MODERATE FIT"})
 
+    def test_calibration_anchor_matches_pbucc_benchmark(self) -> None:
+        engine = StarterScoringEngine(PromptLibrary(Path.cwd() / "prompts"))
+        contact = ContactRecord(
+            contact_name="Anchor Contact",
+            organization="Pension Boards United Church of Christ",
+            org_type="Pension",
+            role="Director, Responsible Investing",
+            email=None,
+            region="NYC",
+            contact_status="Existing Contact",
+            relationship_depth=9,
+        )
+        enrichment = EnrichmentRecord(
+            organization="Pension Boards United Church of Christ",
+            canonical_org_name="pension boards united church of christ",
+            organization_type="Pension",
+            allocator_profile="Likely LP allocator profile based on organization type.",
+        )
+
+        result = engine.score(contact, enrichment)
+
+        self.assertEqual(result.sector_fit.value, 8.0)
+        self.assertEqual(result.halo_value.value, 6.0)
+        self.assertEqual(result.emerging_fit.value, 8.0)
+
+    def test_generic_foundation_does_not_jump_to_priority_close_without_explicit_lp_evidence(self) -> None:
+        engine = StarterScoringEngine(PromptLibrary(Path.cwd() / "prompts"))
+        contact = ContactRecord(
+            contact_name="Careful Score",
+            organization="Climate Foundation",
+            org_type="Foundation",
+            role="Director of Investments",
+            email=None,
+            region="NYC",
+            contact_status="New Contact",
+            relationship_depth=8,
+        )
+        enrichment = EnrichmentRecord(
+            organization="Climate Foundation",
+            canonical_org_name="climate foundation",
+            organization_type="Foundation",
+            allocator_profile="Likely LP allocator profile based on organization type.",
+        )
+
+        result = engine.score(contact, enrichment)
+
+        self.assertLess(result.composite, 8.0)
+        self.assertLess(result.sector_fit.value, 8.0)
+
 
 if __name__ == "__main__":
     unittest.main()
