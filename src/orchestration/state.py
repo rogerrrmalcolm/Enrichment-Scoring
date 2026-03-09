@@ -45,23 +45,34 @@ class RunStateStore:
         run_path = self._manifest_path(run_id)
         if not run_path.exists():
             return None
-        return json.loads(run_path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(run_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return None
 
     def load_latest(self) -> dict[str, object] | None:
         latest_path = self.state_dir / "latest_run.json"
         if not latest_path.exists():
             return None
-        return json.loads(latest_path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(latest_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return None
 
     def _write(self, run_id: str, manifest: dict[str, object]) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         run_path = self._manifest_path(run_id)
         latest_path = self.state_dir / "latest_run.json"
         payload = json.dumps(manifest, indent=2)
-        run_path.write_text(payload, encoding="utf-8")
-        latest_path.write_text(payload, encoding="utf-8")
+        self._atomic_write(run_path, payload)
+        self._atomic_write(latest_path, payload)
 
     def _manifest_path(self, run_id: str) -> Path:
         if not RUN_ID_PATTERN.fullmatch(run_id):
             raise ValueError(f"Invalid run id: {run_id!r}")
         return self.state_dir / f"{run_id}.json"
+
+    def _atomic_write(self, destination: Path, payload: str) -> None:
+        temp_path = destination.with_suffix(destination.suffix + ".tmp")
+        temp_path.write_text(payload, encoding="utf-8")
+        temp_path.replace(destination)

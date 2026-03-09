@@ -28,6 +28,14 @@ class WebhookNotifierTests(unittest.TestCase):
         self.assertEqual(calls[0][1]["payload"]["run_id"], "abc123")
         self.assertEqual(calls[0][2], 3.5)
 
+    def test_rejects_non_https_remote_webhooks(self) -> None:
+        with self.assertRaises(ValueError):
+            WebhookNotifier(("http://example.com/hook",))
+
+    def test_allows_localhost_http_webhooks_for_dev(self) -> None:
+        notifier = WebhookNotifier(("http://127.0.0.1:9000/hook",))
+        self.assertEqual(notifier.urls, ("http://127.0.0.1:9000/hook",))
+
 
 if __name__ == "__main__":
     unittest.main()
