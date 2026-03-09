@@ -17,8 +17,7 @@ class DashboardService:
         return rows[:limit]
 
     def fetch_run_rows(self, run_id: str) -> list[dict[str, Any]]:
-        with sqlite3.connect(self.database_path) as connection:
-            connection.row_factory = sqlite3.Row
+        with self._connect() as connection:
             rows = connection.execute(
                 """
                 SELECT
@@ -53,8 +52,7 @@ class DashboardService:
 
     def fetch_run_summary(self, run_id: str) -> dict[str, Any]:
         rows = self.fetch_run_rows(run_id)
-        with sqlite3.connect(self.database_path) as connection:
-            connection.row_factory = sqlite3.Row
+        with self._connect() as connection:
             run_row = connection.execute(
                 """
                 SELECT
@@ -121,6 +119,14 @@ class DashboardService:
             self._build_html(summary, rows[:25], flagged_rows[:25], methodology),
             encoding="utf-8",
         )
+
+    def _connect(self) -> sqlite3.Connection:
+        if not self.database_path.exists():
+            raise sqlite3.OperationalError(f"Database file not found: {self.database_path}")
+        connection = sqlite3.connect(self.database_path, timeout=30.0)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 30000")
+        return connection
 
     def _build_html(
         self,

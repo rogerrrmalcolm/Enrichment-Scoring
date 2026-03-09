@@ -61,93 +61,106 @@ class ProspectPipeline:
                 "organization_count": len(org_index),
             },
         )
-
-        for organization_key, org_contacts in org_index.items():
-            try:
-                enrichment = self.cache.get(organization_key)
-                if enrichment is None:
-                    self._wait_for_rate_limit(self.enrichment_limiter)
-                    enrichment = self.enrichment_provider.enrich(organization_key, org_contacts)
-                    self.cache.set(organization_key, enrichment)
-                    self.cost_tracker.record_cache_miss()
-                    self._record_estimated_cost(
-                        operation="enrichment",
-                        prompt_artifacts=enrichment.raw_payload.get("prompt_artifacts", {}),
-                        completion_tokens=420,
-                        tool_calls=1,
-                    )
-                else:
-                    self.cost_tracker.record_cache_hit(estimated_saved_cost_usd=0.012)
-
-                for contact in org_contacts:
-                    self._wait_for_rate_limit(self.scoring_limiter)
-                    score = self.scoring_engine.score(contact, enrichment)
-                    self._record_estimated_cost(
-                        operation="scoring",
-                        prompt_artifacts=score.metadata.get("prompt_artifacts", {}),
-                        completion_tokens=260,
-                    )
-                    flags = self.validation_engine.validate(contact, enrichment, score)
-                    results.append(
-                        ProspectResult(
-                            contact=contact,
-                            enrichment=enrichment,
-                            score=score,
-                            validation_flags=flags,
+        try:
+            for organization_key, org_contacts in org_index.items():
+                try:
+                    enrichment = self.cache.get(organization_key)
+                    if enrichment is None:
+                        self._wait_for_rate_limit(self.enrichment_limiter)
+                        enrichment = self.enrichment_provider.enrich(organization_key, org_contacts)
+                        self.cache.set(organization_key, enrichment)
+                        self.cost_tracker.record_cache_miss()
+                        self._record_estimated_cost(
+                            operation="enrichment",
+                            prompt_artifacts=enrichment.raw_payload.get("prompt_artifacts", {}),
+                            completion_tokens=420,
+                            tool_calls=1,
                         )
-                    )
-                manifest["completed_organizations"] = int(manifest["completed_organizations"]) + 1
-                self.state_store.update_progress(run_id, manifest)
-            except Exception as exc:
-                self.logger.exception("Failed to process organization %s", organization_key)
-                failures = manifest["failed_organizations"]
-                if isinstance(failures, list):
-                    failures.append({"organization_key": organization_key, "error": str(exc)})
-                self.state_store.update_progress(run_id, manifest)
-                self._emit_webhook(
-                    "run.organization_failed",
-                    {
-                        "run_id": run_id,
-                        "organization_key": organization_key,
-                        "error": str(exc),
-                    },
-                )
+                    else:
+                        self.cost_tracker.record_cache_hit(estimated_saved_cost_usd=0.012)
 
-        results.sort(key=lambda item: item.score.composite, reverse=True)
-        self.cache.save()
-        cost_summary = self.cost_tracker.snapshot(
-            total_contacts=len(contacts),
-            total_organizations=len(org_index),
-        )
-        self.repository.initialize()
-        self.repository.save_run(
-            run_id=run_id,
-            results=results,
-            org_count=len(org_index),
-            cost_snapshot=cost_summary,
-        )
-        self._write_processed_output(run_id, results, cost_summary)
-        self.dashboard.export_run_csv(run_id, self.settings.leaderboard_path(run_id))
-        self.dashboard.export_run_html(run_id, self.settings.report_path(run_id))
-        manifest["artifacts"] = {
-            "database": str(self.settings.database_path),
-            "processed_json": str(self.settings.processed_output_path(run_id)),
-            "leaderboard_csv": str(self.settings.leaderboard_path(run_id)),
-            "html_report": str(self.settings.report_path(run_id)),
-        }
-        manifest["cost_summary"] = cost_summary
-        self.state_store.complete_run(run_id, manifest)
-        self._emit_webhook(
-            "run.completed",
-            {
-                "run_id": run_id,
-                "completed_organizations": manifest["completed_organizations"],
-                "failed_organizations": manifest["failed_organizations"],
-                "artifacts": manifest["artifacts"],
-                "cost_summary": manifest["cost_summary"],
-            },
-        )
-        return run_id
+                    for contact in org_contacts:
+                        self._wait_for_rate_limit(self.scoring_limiter)
+                        score = self.scoring_engine.score(contact, enrichment)
+                        self._record_estimated_cost(
+                            operation="scoring",
+                            prompt_artifacts=score.metadata.get("prompt_artifacts", {}),
+                            completion_tokens=260,
+                        )
+                        flags = self.validation_engine.validate(contact, enrichment, score)
+                        results.append(
+                            ProspectResult(
+                                contact=contact,
+                                enrichment=enrichment,
+                                score=score,
+                                validation_flags=flags,
+                            )
+                        )
+                    manifest["completed_organizations"] = int(manifest["completed_organizations"]) + 1
+                    self.state_store.update_progress(run_id, manifest)
+                except Exception as exc:
+                    self.logger.exception("Failed to process organization %s", organization_key)
+                    failures = manifest["failed_organizations"]
+                    if isinstance(failures, list):
+                        failures.append({"organization_key": organization_key, "error": str(exc)})
+                    self.state_store.update_progress(run_id, manifest)
+                    self._emit_webhook(
+                        "run.organization_failed",
+                        {
+                            "run_id": run_id,
+                            "organization_key": organization_key,
+                            "error": str(exc),
+                        },
+                    )
+
+            results.sort(key=lambda item: item.score.composite, reverse=True)
+            self.cache.save()
+            cost_summary = self.cost_tracker.snapshot(
+                total_contacts=len(contacts),
+                total_organizations=len(org_index),
+            )
+            self.repository.initialize()
+            self.repository.save_run(
+                run_id=run_id,
+                results=results,
+                org_count=len(org_index),
+                cost_snapshot=cost_summary,
+            )
+            self._write_processed_output(run_id, results, cost_summary)
+            self.dashboard.export_run_csv(run_id, self.settings.leaderboard_path(run_id))
+            self.dashboard.export_run_html(run_id, self.settings.report_path(run_id))
+            manifest["artifacts"] = {
+                "database": str(self.settings.database_path),
+                "processed_json": str(self.settings.processed_output_path(run_id)),
+                "leaderboard_csv": str(self.settings.leaderboard_path(run_id)),
+                "html_report": str(self.settings.report_path(run_id)),
+            }
+            manifest["cost_summary"] = cost_summary
+            self.state_store.complete_run(run_id, manifest)
+            self._emit_webhook(
+                "run.completed",
+                {
+                    "run_id": run_id,
+                    "completed_organizations": manifest["completed_organizations"],
+                    "failed_organizations": manifest["failed_organizations"],
+                    "artifacts": manifest["artifacts"],
+                    "cost_summary": manifest["cost_summary"],
+                },
+            )
+            return run_id
+        except Exception as exc:
+            self.logger.exception("Pipeline run %s failed", run_id)
+            self.state_store.fail_run(run_id, manifest, str(exc))
+            self._emit_webhook(
+                "run.failed",
+                {
+                    "run_id": run_id,
+                    "error": str(exc),
+                    "completed_organizations": manifest["completed_organizations"],
+                    "failed_organizations": manifest["failed_organizations"],
+                },
+            )
+            raise
 
     def _write_processed_output(
         self,

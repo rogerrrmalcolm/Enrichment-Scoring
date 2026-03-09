@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
+
+
+RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 class RunStateStore:
@@ -31,8 +35,14 @@ class RunStateStore:
         manifest["completed_at"] = datetime.now(timezone.utc).isoformat()
         self._write(run_id, manifest)
 
+    def fail_run(self, run_id: str, manifest: dict[str, object], error: str) -> None:
+        manifest["status"] = "failed"
+        manifest["failed_at"] = datetime.now(timezone.utc).isoformat()
+        manifest["error"] = error
+        self._write(run_id, manifest)
+
     def load(self, run_id: str) -> dict[str, object] | None:
-        run_path = self.state_dir / f"{run_id}.json"
+        run_path = self._manifest_path(run_id)
         if not run_path.exists():
             return None
         return json.loads(run_path.read_text(encoding="utf-8"))
@@ -45,8 +55,13 @@ class RunStateStore:
 
     def _write(self, run_id: str, manifest: dict[str, object]) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
-        run_path = self.state_dir / f"{run_id}.json"
+        run_path = self._manifest_path(run_id)
         latest_path = self.state_dir / "latest_run.json"
         payload = json.dumps(manifest, indent=2)
         run_path.write_text(payload, encoding="utf-8")
         latest_path.write_text(payload, encoding="utf-8")
+
+    def _manifest_path(self, run_id: str) -> Path:
+        if not RUN_ID_PATTERN.fullmatch(run_id):
+            raise ValueError(f"Invalid run id: {run_id!r}")
+        return self.state_dir / f"{run_id}.json"

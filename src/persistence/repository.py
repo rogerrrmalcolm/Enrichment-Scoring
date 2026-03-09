@@ -16,7 +16,9 @@ class ProspectRepository:
 
     def initialize(self) -> None:
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.database_path) as connection:
+        with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = NORMAL")
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS pipeline_runs (
@@ -60,7 +62,7 @@ class ProspectRepository:
         cost_snapshot: dict[str, object],
     ) -> None:
         rows = list(results)
-        with sqlite3.connect(self.database_path) as connection:
+        with self._connect() as connection:
             connection.execute(
                 """
                 INSERT OR REPLACE INTO pipeline_runs (
@@ -122,3 +124,8 @@ class ProspectRepository:
                     for result in rows
                 ],
             )
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.database_path, timeout=30.0)
+        connection.execute("PRAGMA busy_timeout = 30000")
+        return connection

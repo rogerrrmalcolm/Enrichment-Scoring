@@ -22,6 +22,7 @@ class AppSettings:
     webhook_timeout_seconds: float
     api_host: str
     api_port: int
+    api_key: str | None
 
     @classmethod
     def from_root(cls, root_dir: Path | None = None) -> "AppSettings":
@@ -36,12 +37,13 @@ class AppSettings:
             export_dir=resolved_root / "data" / "exports",
             state_dir=resolved_root / "storage" / "state",
             log_dir=resolved_root / "storage" / "logs",
-            enrichment_requests_per_minute=int(os.getenv("PACEZERO_ENRICHMENT_RPM", "30")),
-            scoring_requests_per_minute=int(os.getenv("PACEZERO_SCORING_RPM", "120")),
+            enrichment_requests_per_minute=_env_non_negative_int("PACEZERO_ENRICHMENT_RPM", 30),
+            scoring_requests_per_minute=_env_non_negative_int("PACEZERO_SCORING_RPM", 120),
             webhook_urls=_parse_webhook_urls(os.getenv("PACEZERO_WEBHOOK_URLS", "")),
-            webhook_timeout_seconds=float(os.getenv("PACEZERO_WEBHOOK_TIMEOUT_SECONDS", "5.0")),
+            webhook_timeout_seconds=_env_positive_float("PACEZERO_WEBHOOK_TIMEOUT_SECONDS", 5.0),
             api_host=os.getenv("PACEZERO_API_HOST", "127.0.0.1"),
-            api_port=int(os.getenv("PACEZERO_API_PORT", "8000")),
+            api_port=_env_port("PACEZERO_API_PORT", 8000),
+            api_key=_optional_env("PACEZERO_API_KEY"),
         )
 
     def processed_output_path(self, run_id: str) -> Path:
@@ -60,3 +62,37 @@ class AppSettings:
 def _parse_webhook_urls(value: str) -> tuple[str, ...]:
     urls = [item.strip() for item in value.split(",") if item.strip()]
     return tuple(urls)
+
+
+def _env_non_negative_int(name: str, default: int) -> int:
+    raw_value = os.getenv(name, str(default))
+    try:
+        parsed = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {raw_value!r}.") from exc
+    if parsed < 0:
+        raise ValueError(f"{name} must be zero or greater, got {parsed}.")
+    return parsed
+
+
+def _env_positive_float(name: str, default: float) -> float:
+    raw_value = os.getenv(name, str(default))
+    try:
+        parsed = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number, got {raw_value!r}.") from exc
+    if parsed <= 0:
+        raise ValueError(f"{name} must be greater than zero, got {parsed}.")
+    return parsed
+
+
+def _env_port(name: str, default: int) -> int:
+    parsed = _env_non_negative_int(name, default)
+    if parsed == 0 or parsed > 65535:
+        raise ValueError(f"{name} must be between 1 and 65535, got {parsed}.")
+    return parsed
+
+
+def _optional_env(name: str) -> str | None:
+    value = os.getenv(name, "").strip()
+    return value or None
