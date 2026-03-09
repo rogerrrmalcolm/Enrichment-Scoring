@@ -6,6 +6,8 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 
 from config.settings import AppSettings
+from src.control.rate_limiter import TokenBucketRateLimiter
+from src.control.webhooks import WebhookNotifier
 from src.costing.tracker import CostTracker
 from src.dashboard.service import DashboardService
 from src.dedup.org_registry import build_org_index
@@ -33,6 +35,12 @@ class ProspectPipeline:
         self.state_store = RunStateStore(settings.state_dir)
         self.repository = ProspectRepository(settings.database_path)
         self.dashboard = DashboardService(settings.database_path)
+        self.enrichment_limiter = TokenBucketRateLimiter(settings.enrichment_requests_per_minute)
+        self.scoring_limiter = TokenBucketRateLimiter(settings.scoring_requests_per_minute)
+        self.webhooks = WebhookNotifier(
+            settings.webhook_urls,
+            timeout_seconds=settings.webhook_timeout_seconds,
+        )
 
     def run(self) -> str:
         contacts = load_contacts(self.settings.input_csv)
@@ -40,11 +48,25 @@ class ProspectPipeline:
         run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         results: list[ProspectResult] = []
         manifest = self.state_store.start_run(run_id, len(contacts), len(org_index))
+        manifest["runtime_controls"] = {
+            "enrichment_requests_per_minute": self.settings.enrichment_requests_per_minute,
+            "scoring_requests_per_minute": self.settings.scoring_requests_per_minute,
+            "webhook_count": len(self.settings.webhook_urls),
+        }
+        self._emit_webhook(
+            "run.started",
+            {
+                "run_id": run_id,
+                "contact_count": len(contacts),
+                "organization_count": len(org_index),
+            },
+        )
 
         for organization_key, org_contacts in org_index.items():
             try:
                 enrichment = self.cache.get(organization_key)
                 if enrichment is None:
+                    self._wait_for_rate_limit(self.enrichment_limiter)
                     enrichment = self.enrichment_provider.enrich(organization_key, org_contacts)
                     self.cache.set(organization_key, enrichment)
                     self.cost_tracker.record_cache_miss()
@@ -58,6 +80,7 @@ class ProspectPipeline:
                     self.cost_tracker.record_cache_hit(estimated_saved_cost_usd=0.012)
 
                 for contact in org_contacts:
+                    self._wait_for_rate_limit(self.scoring_limiter)
                     score = self.scoring_engine.score(contact, enrichment)
                     self._record_estimated_cost(
                         vendor="estimated",
@@ -82,6 +105,14 @@ class ProspectPipeline:
                 if isinstance(failures, list):
                     failures.append({"organization_key": organization_key, "error": str(exc)})
                 self.state_store.update_progress(run_id, manifest)
+                self._emit_webhook(
+                    "run.organization_failed",
+                    {
+                        "run_id": run_id,
+                        "organization_key": organization_key,
+                        "error": str(exc),
+                    },
+                )
 
         results.sort(key=lambda item: item.score.composite, reverse=True)
         self.cache.save()
@@ -103,6 +134,16 @@ class ProspectPipeline:
         }
         manifest["cost_summary"] = self.cost_tracker.snapshot()
         self.state_store.complete_run(run_id, manifest)
+        self._emit_webhook(
+            "run.completed",
+            {
+                "run_id": run_id,
+                "completed_organizations": manifest["completed_organizations"],
+                "failed_organizations": manifest["failed_organizations"],
+                "artifacts": manifest["artifacts"],
+                "cost_summary": manifest["cost_summary"],
+            },
+        )
         return run_id
 
     def _write_processed_output(self, run_id: str, results: list[ProspectResult]) -> None:
@@ -135,6 +176,17 @@ class ProspectPipeline:
             completion_tokens=completion_tokens,
             cost_usd=round(prompt_cost + completion_cost, 6),
         )
+
+    def _wait_for_rate_limit(self, limiter: TokenBucketRateLimiter) -> None:
+        waited = limiter.acquire()
+        if waited > 0:
+            self.logger.info("Rate limiter waited %.3f seconds", waited)
+            self.cost_tracker.record_rate_limit_wait(waited)
+
+    def _emit_webhook(self, event_type: str, payload: dict[str, object]) -> None:
+        deliveries = self.webhooks.emit(event_type, payload)
+        if deliveries:
+            self.logger.info("Webhook deliveries for %s: %s", event_type, deliveries)
 
 
 def _estimate_tokens(text: str) -> int:

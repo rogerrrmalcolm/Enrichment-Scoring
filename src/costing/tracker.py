@@ -12,6 +12,7 @@ class CostTracker:
     cache_hits: int = 0
     cache_misses: int = 0
     avoided_cost_usd: float = 0.0
+    total_rate_limit_wait_seconds: float = 0.0
     vendor_breakdown: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def record(
@@ -47,6 +48,9 @@ class CostTracker:
     def record_cache_miss(self) -> None:
         self.cache_misses += 1
 
+    def record_rate_limit_wait(self, wait_seconds: float) -> None:
+        self.total_rate_limit_wait_seconds = round(self.total_rate_limit_wait_seconds + wait_seconds, 6)
+
     def snapshot(self) -> dict[str, object]:
         return {
             "total_cost_usd": round(self.total_cost_usd, 6),
@@ -56,5 +60,6 @@ class CostTracker:
             "cache_hits": self.cache_hits,
             "cache_misses": self.cache_misses,
             "avoided_cost_usd": round(self.avoided_cost_usd, 6),
+            "total_rate_limit_wait_seconds": round(self.total_rate_limit_wait_seconds, 6),
             "vendor_breakdown": self.vendor_breakdown,
         }
