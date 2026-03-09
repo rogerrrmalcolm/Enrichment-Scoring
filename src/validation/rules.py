@@ -23,4 +23,10 @@ class ValidationEngine:
             or score.emerging_fit.confidence == Confidence.LOW
         ):
             flags.append("High composite score built on low-confidence dimensions.")
+        if org_type in SERVICE_PROVIDER_TYPES and score.tier in {"STRONG FIT", "PRIORITY CLOSE"}:
+            flags.append("Non-LP profile reached a top outreach tier and should be reviewed.")
+        if score.tier == "PRIORITY CLOSE" and contact.relationship_depth <= 3:
+            flags.append("Priority-close tier with weak relationship depth deserves manual review.")
+        if score.check_size_estimate is None and enrichment.aum is not None:
+            flags.append("AUM was present but check-size estimation failed.")
         return flags

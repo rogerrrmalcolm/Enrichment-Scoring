@@ -15,7 +15,10 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
         sandbox_dir = Path.cwd() / "tests" / "tmp"
         sandbox_dir.mkdir(parents=True, exist_ok=True)
         root = sandbox_dir / f"fixture_{uuid.uuid4().hex}"
+        (root / "prompts" / "enrichment").mkdir(parents=True)
+        (root / "prompts" / "scoring").mkdir(parents=True)
         (root / "data" / "incoming").mkdir(parents=True)
+        (root / "data" / "cache").mkdir(parents=True)
         (root / "data" / "processed").mkdir(parents=True)
         (root / "data" / "exports").mkdir(parents=True)
         (root / "storage" / "db").mkdir(parents=True)
@@ -49,6 +52,20 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
                     "7",
                 ]
             )
+        (root / "prompts" / "enrichment" / "system.txt").write_text("Research prompt system.", encoding="utf-8")
+        (root / "prompts" / "enrichment" / "organization_research.txt").write_text(
+            "Org {{organization}} type {{org_type}} regions {{regions}} roles {{roles}} count {{contact_count}}",
+            encoding="utf-8",
+        )
+        (root / "prompts" / "scoring" / "system.txt").write_text("Scoring prompt system.", encoding="utf-8")
+        (root / "prompts" / "scoring" / "prospect_scorecard.txt").write_text(
+            "Score {{organization}} {{org_type}} {{relationship_depth}} {{allocator_profile}} {{external_allocations}} {{sustainability_mandate}} {{brand_signal}} {{emerging_manager_program}} {{aum}}",
+            encoding="utf-8",
+        )
+        (root / "prompts" / "scoring" / "validation_review.txt").write_text(
+            "Validate {{organization}} {{org_type}} {{sector_fit}} {{halo_value}} {{emerging_fit}} {{composite}} {{flags}}",
+            encoding="utf-8",
+        )
 
         settings = AppSettings.from_root(root)
         pipeline = ProspectPipeline(settings)
@@ -61,6 +78,10 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
             ).fetchone()[0]
 
         self.assertEqual(prospect_count, 1)
+        self.assertTrue(settings.processed_output_path(run_id).exists())
+        self.assertTrue(settings.leaderboard_path(run_id).exists())
+        self.assertTrue(settings.report_path(run_id).exists())
+        self.assertTrue(settings.cache_path.exists())
 
 
 if __name__ == "__main__":

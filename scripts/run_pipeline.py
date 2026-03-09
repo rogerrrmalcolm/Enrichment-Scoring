@@ -23,7 +23,8 @@ def main() -> int:
 
     print(f"Completed run: {run_id}")
     print(f"Database: {settings.database_path}")
-    print(f"Top prospects exported to: {settings.export_dir / f'{run_id}_leaderboard.csv'}")
+    print(f"Top prospects exported to: {settings.leaderboard_path(run_id)}")
+    print(f"HTML report: {settings.report_path(run_id)}")
     for row in top_rows[:5]:
         print(
             f"{row['composite']:>4.2f} | {row['tier']:<14} | "
