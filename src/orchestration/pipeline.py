@@ -74,6 +74,7 @@ class ProspectPipeline:
                         operation="enrichment",
                         prompt_artifacts=enrichment.raw_payload.get("prompt_artifacts", {}),
                         completion_tokens=420,
+                        tool_calls=1,
                     )
                 else:
                     self.cost_tracker.record_cache_hit(estimated_saved_cost_usd=0.012)
@@ -169,6 +170,7 @@ class ProspectPipeline:
         operation: str,
         prompt_artifacts: dict[str, object],
         completion_tokens: int,
+        tool_calls: int = 0,
     ) -> None:
         # The pipeline tracks cost at the operation level so the run summary can
         # project scaling scenarios for 1k+ prospects and show where spend accumulates.
@@ -177,6 +179,7 @@ class ProspectPipeline:
             operation=operation,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
+            tool_calls=tool_calls,
         )
 
     def _wait_for_rate_limit(self, limiter: TokenBucketRateLimiter) -> None:

@@ -228,7 +228,7 @@ def _rows_to_table(rows: list[dict[str, Any]], include_flags: bool = False) -> s
 def _cost_operation_table(operation_breakdown: dict[str, Any]) -> str:
     if not operation_breakdown:
         return "<p>No cost data available.</p>"
-    headers = ["Operation", "Model", "Requests", "Prompt Tokens", "Completion Tokens", "Cost (USD)"]
+    headers = ["Operation", "Model", "Requests", "Prompt Tokens", "Search Tokens", "Tool Calls", "Completion Tokens", "Cost (USD)"]
     header_html = "".join(f"<th>{escape(header)}</th>" for header in headers)
     body_parts: list[str] = []
     for operation_name, payload in sorted(operation_breakdown.items()):
@@ -237,6 +237,8 @@ def _cost_operation_table(operation_breakdown: dict[str, Any]) -> str:
             escape(str(payload.get("model", "unknown"))),
             str(payload.get("requests", 0)),
             str(payload.get("prompt_tokens", 0)),
+            str(payload.get("search_content_input_tokens", 0)),
+            str(payload.get("tool_calls", 0)),
             str(payload.get("completion_tokens", 0)),
             f"{float(payload.get('cost_usd', 0)):.4f}",
         ]
@@ -247,7 +249,15 @@ def _cost_operation_table(operation_breakdown: dict[str, Any]) -> str:
 def _cost_projection_table(projections: list[dict[str, Any]]) -> str:
     if not projections:
         return "<p>No projections available.</p>"
-    headers = ["Target Contacts", "Estimated Orgs", "Cold Start (USD)", "Warm Cache (USD)", "Savings (USD)"]
+    headers = [
+        "Target Contacts",
+        "Estimated Orgs",
+        "Cold Start (USD)",
+        "Provider Cache (USD)",
+        "App Cache (USD)",
+        "Provider Savings (USD)",
+        "App Savings (USD)",
+    ]
     header_html = "".join(f"<th>{escape(header)}</th>" for header in headers)
     body_parts: list[str] = []
     for row in projections:
@@ -255,8 +265,10 @@ def _cost_projection_table(projections: list[dict[str, Any]]) -> str:
             str(row.get("target_contacts", 0)),
             str(row.get("estimated_organizations", 0)),
             f"{float(row.get('cold_start_cost_usd', 0)):.4f}",
-            f"{float(row.get('warm_cache_cost_usd', 0)):.4f}",
-            f"{float(row.get('estimated_savings_usd', 0)):.4f}",
+            f"{float(row.get('provider_cache_cost_usd', 0)):.4f}",
+            f"{float(row.get('app_cache_cost_usd', 0)):.4f}",
+            f"{float(row.get('provider_cache_savings_usd', 0)):.4f}",
+            f"{float(row.get('app_cache_savings_usd', 0)):.4f}",
         ]
         body_parts.append("<tr>" + "".join(f"<td>{column}</td>" for column in columns) + "</tr>")
     return f"<table><thead><tr>{header_html}</tr></thead><tbody>{''.join(body_parts)}</tbody></table>"

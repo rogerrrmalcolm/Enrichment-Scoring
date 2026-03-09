@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from math import ceil
 
 from .pricing import DEFAULT_PRICING, OperationPricing, estimate_operation_cost
@@ -11,6 +11,8 @@ class OperationTotals:
     requests: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    search_content_input_tokens: int = 0
+    tool_calls: int = 0
     cost_usd: float = 0.0
 
     def average_prompt_tokens(self, default_value: int) -> int:
@@ -23,6 +25,16 @@ class OperationTotals:
             return default_value
         return max(1, round(self.completion_tokens / self.requests))
 
+    def average_tool_calls(self, default_value: int) -> int:
+        if self.requests == 0:
+            return default_value
+        return max(0, round(self.tool_calls / self.requests))
+
+    def average_search_tokens(self, default_value: int) -> int:
+        if self.requests == 0:
+            return default_value
+        return max(0, round(self.search_content_input_tokens / self.requests))
+
 
 @dataclass(slots=True)
 class CostTracker:
@@ -31,12 +43,14 @@ class CostTracker:
     total_requests: int = 0
     total_prompt_tokens: int = 0
     total_completion_tokens: int = 0
+    total_search_content_input_tokens: int = 0
+    total_tool_calls: int = 0
     cache_hits: int = 0
     cache_misses: int = 0
     avoided_cost_usd: float = 0.0
     total_rate_limit_wait_seconds: float = 0.0
     operations: dict[str, OperationTotals] = field(default_factory=dict)
-    vendor_breakdown: dict[str, dict[str, float]] = field(default_factory=dict)
+    vendor_breakdown: dict[str, dict[str, float | int]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for operation in self.pricing:
@@ -47,18 +61,36 @@ class CostTracker:
         operation: str,
         prompt_tokens: int,
         completion_tokens: int,
+        *,
+        tool_calls: int = 0,
+        search_content_input_tokens: int | None = None,
     ) -> float:
         pricing = self.pricing[operation]
-        cost_usd = estimate_operation_cost(prompt_tokens, completion_tokens, pricing)
+        effective_search_tokens = (
+            pricing.fixed_search_content_input_tokens
+            if search_content_input_tokens is None
+            else search_content_input_tokens
+        )
+        cost_usd = estimate_operation_cost(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            pricing=pricing,
+            tool_calls=tool_calls,
+            search_content_input_tokens=effective_search_tokens,
+        )
         totals = self.operations.setdefault(operation, OperationTotals())
         totals.requests += 1
         totals.prompt_tokens += prompt_tokens
         totals.completion_tokens += completion_tokens
+        totals.search_content_input_tokens += effective_search_tokens
+        totals.tool_calls += tool_calls
         totals.cost_usd = round(totals.cost_usd + cost_usd, 6)
 
         self.total_requests += 1
         self.total_prompt_tokens += prompt_tokens
         self.total_completion_tokens += completion_tokens
+        self.total_search_content_input_tokens += effective_search_tokens
+        self.total_tool_calls += tool_calls
         self.total_cost_usd = round(self.total_cost_usd + cost_usd, 6)
 
         vendor_key = f"{pricing.vendor}:{pricing.model}"
@@ -67,13 +99,17 @@ class CostTracker:
                 "requests": 0,
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
+                "search_content_input_tokens": 0,
+                "tool_calls": 0,
                 "cost_usd": 0.0,
             }
         bucket = self.vendor_breakdown[vendor_key]
         bucket["requests"] += 1
         bucket["prompt_tokens"] += prompt_tokens
         bucket["completion_tokens"] += completion_tokens
-        bucket["cost_usd"] = round(bucket["cost_usd"] + cost_usd, 6)
+        bucket["search_content_input_tokens"] += effective_search_tokens
+        bucket["tool_calls"] += tool_calls
+        bucket["cost_usd"] = round(float(bucket["cost_usd"]) + cost_usd, 6)
         return cost_usd
 
     def record_cache_hit(self, estimated_saved_cost_usd: float) -> None:
@@ -91,12 +127,13 @@ class CostTracker:
         effective_cost_per_contact = self.total_cost_usd / max(total_contacts, 1)
         effective_cost_per_organization = self.total_cost_usd / max(total_organizations, 1)
         cache_hit_rate = self.cache_hits / max(self.cache_hits + self.cache_misses, 1)
-        projections = self._build_scale_projections(dedup_ratio)
         return {
             "total_cost_usd": round(self.total_cost_usd, 6),
             "total_requests": self.total_requests,
             "total_prompt_tokens": self.total_prompt_tokens,
             "total_completion_tokens": self.total_completion_tokens,
+            "total_search_content_input_tokens": self.total_search_content_input_tokens,
+            "total_tool_calls": self.total_tool_calls,
             "cache_hits": self.cache_hits,
             "cache_misses": self.cache_misses,
             "cache_hit_rate": round(cache_hit_rate, 4),
@@ -107,7 +144,7 @@ class CostTracker:
             "dedup_ratio_contacts_per_org": round(dedup_ratio, 4),
             "operation_breakdown": self._operation_breakdown(),
             "vendor_breakdown": self.vendor_breakdown,
-            "projections": projections,
+            "projections": self._build_scale_projections(dedup_ratio),
         }
 
     def _operation_breakdown(self) -> dict[str, dict[str, float | int | str]]:
@@ -118,12 +155,19 @@ class CostTracker:
                 "operation": operation,
                 "vendor": pricing.vendor,
                 "model": pricing.model,
+                "source_label": pricing.source_label,
+                "source_url": pricing.source_url,
                 "requests": totals.requests,
                 "prompt_tokens": totals.prompt_tokens,
                 "completion_tokens": totals.completion_tokens,
+                "search_content_input_tokens": totals.search_content_input_tokens,
+                "tool_calls": totals.tool_calls,
                 "cost_usd": round(totals.cost_usd, 6),
                 "avg_prompt_tokens": totals.average_prompt_tokens(pricing.default_prompt_tokens),
                 "avg_completion_tokens": totals.average_completion_tokens(pricing.default_completion_tokens),
+                "avg_search_content_input_tokens": totals.average_search_tokens(pricing.fixed_search_content_input_tokens),
+                "avg_tool_calls": totals.average_tool_calls(pricing.default_tool_calls),
+                "cached_input_supported": pricing.cached_input_cost_per_1m_tokens is not None,
             }
         return payload
 
@@ -133,19 +177,23 @@ class CostTracker:
         scoring_totals = self.operations.get("scoring", OperationTotals())
         for target_contacts in (100, 1000, 5000):
             estimated_orgs = max(1, ceil(target_contacts / max(dedup_ratio, 1.0)))
-            cold_cost = self._project_operation_cost("enrichment", estimated_orgs, enrichment_totals) + self._project_operation_cost(
-                "scoring",
-                target_contacts,
-                scoring_totals,
-            )
-            warm_cost = self._project_operation_cost("scoring", target_contacts, scoring_totals)
+            cold_enrichment = self._project_operation_cost("enrichment", estimated_orgs, enrichment_totals, use_cached_input_rate=False)
+            cold_scoring = self._project_operation_cost("scoring", target_contacts, scoring_totals, use_cached_input_rate=False)
+            provider_cached_enrichment = self._project_operation_cost("enrichment", estimated_orgs, enrichment_totals, use_cached_input_rate=True)
+            provider_cached_scoring = self._project_operation_cost("scoring", target_contacts, scoring_totals, use_cached_input_rate=True)
+            app_cached_scoring = self._project_operation_cost("scoring", target_contacts, scoring_totals, use_cached_input_rate=False)
+            cold_total = cold_enrichment + cold_scoring
+            provider_cache_total = provider_cached_enrichment + provider_cached_scoring
+            app_cache_total = app_cached_scoring
             projections.append(
                 {
                     "target_contacts": target_contacts,
                     "estimated_organizations": estimated_orgs,
-                    "cold_start_cost_usd": round(cold_cost, 6),
-                    "warm_cache_cost_usd": round(warm_cost, 6),
-                    "estimated_savings_usd": round(cold_cost - warm_cost, 6),
+                    "cold_start_cost_usd": round(cold_total, 6),
+                    "provider_cache_cost_usd": round(provider_cache_total, 6),
+                    "app_cache_cost_usd": round(app_cache_total, 6),
+                    "provider_cache_savings_usd": round(cold_total - provider_cache_total, 6),
+                    "app_cache_savings_usd": round(cold_total - app_cache_total, 6),
                 }
             )
         return projections
@@ -155,9 +203,20 @@ class CostTracker:
         operation: str,
         projected_requests: int,
         totals: OperationTotals,
+        *,
+        use_cached_input_rate: bool,
     ) -> float:
         pricing = self.pricing[operation]
         avg_prompt_tokens = totals.average_prompt_tokens(pricing.default_prompt_tokens)
         avg_completion_tokens = totals.average_completion_tokens(pricing.default_completion_tokens)
-        unit_cost = estimate_operation_cost(avg_prompt_tokens, avg_completion_tokens, pricing)
+        avg_search_tokens = totals.average_search_tokens(pricing.fixed_search_content_input_tokens)
+        avg_tool_calls = totals.average_tool_calls(pricing.default_tool_calls)
+        unit_cost = estimate_operation_cost(
+            prompt_tokens=avg_prompt_tokens,
+            completion_tokens=avg_completion_tokens,
+            pricing=pricing,
+            tool_calls=avg_tool_calls,
+            use_cached_input_rate=use_cached_input_rate,
+            search_content_input_tokens=avg_search_tokens,
+        )
         return projected_requests * unit_cost
