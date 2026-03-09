@@ -1,0 +1,15 @@
+Review the scored prospect for anomalies.
+
+Organization: {{organization}}
+Org type: {{org_type}}
+Sector fit: {{sector_fit}}
+Halo value: {{halo_value}}
+Emerging fit: {{emerging_fit}}
+Composite: {{composite}}
+Flags already raised: {{flags}}
+
+Check for:
+- service providers scoring too high
+- allocator-like organizations scoring too low
+- high composite scores with weak evidence
+- contradictions between org type and rationale

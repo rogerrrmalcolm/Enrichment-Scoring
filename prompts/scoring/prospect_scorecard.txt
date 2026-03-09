@@ -1,0 +1,18 @@
+Score the prospect using the research evidence below.
+
+Organization: {{organization}}
+Org type: {{org_type}}
+Relationship depth: {{relationship_depth}}
+Allocator profile: {{allocator_profile}}
+External allocations summary: {{external_allocations}}
+Sustainability summary: {{sustainability_mandate}}
+Brand summary: {{brand_signal}}
+Emerging manager summary: {{emerging_manager_program}}
+AUM: {{aum}}
+
+Return:
+1. sector_fit score (1-10) with rationale
+2. halo_value score (1-10) with rationale
+3. emerging_fit score (1-10) with rationale
+4. confidence notes
+5. estimated check size, if AUM is usable

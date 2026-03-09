@@ -1,0 +1,16 @@
+Research the organization below for LP fundraising qualification.
+
+Organization: {{organization}}
+Observed org type from CRM: {{org_type}}
+Known regions: {{regions}}
+Known roles: {{roles}}
+Contact count in CRM: {{contact_count}}
+
+Return structured notes covering:
+1. Whether this entity is an LP allocator, GP, lender, advisor, or mixed case.
+2. Evidence of external fund allocations.
+3. Evidence of sustainability/impact/climate mandate.
+4. AUM or investment pool size, if found.
+5. Brand/halo assessment.
+6. Emerging manager openness.
+7. Confidence level and missing data.

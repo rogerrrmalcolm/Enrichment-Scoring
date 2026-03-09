@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.sqlite3
+
+data/exports/
+data/processed/
+storage/logs/
+storage/state/
+tests/tmp/
