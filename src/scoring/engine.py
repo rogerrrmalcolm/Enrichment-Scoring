@@ -45,7 +45,7 @@ class StarterScoringEngine:
     def score(self, contact: ContactRecord, enrichment: EnrichmentRecord) -> ProspectScore:
         calibration = CALIBRATION_SCORECARDS.get(enrichment.canonical_org_name.lower())
         sector_fit = self._score_sector_fit(contact, enrichment, calibration)
-        relationship_depth = ScoreDimension(
+        relationship_depth = _dimension(
             value=float(contact.relationship_depth),
             confidence=Confidence.HIGH,
             rationale="Uses the pre-computed Relationship Depth value from the input CSV, exactly as instructed.",
@@ -71,6 +71,11 @@ class StarterScoringEngine:
                 "prompt_artifacts": self._build_prompt_artifacts(contact, enrichment),
                 "formula": FORMULA_DESCRIPTION,
                 "weights": WEIGHTS.copy(),
+                "insufficient_evidence_dimensions": _insufficient_evidence_dimensions(
+                    sector_fit=sector_fit,
+                    halo_value=halo_value,
+                    emerging_fit=emerging_fit,
+                ),
             },
         )
 
@@ -81,64 +86,69 @@ class StarterScoringEngine:
         calibration: dict[str, float] | None,
     ) -> ScoreDimension:
         if calibration is not None:
-            return ScoreDimension(
-                calibration["sector_fit"],
-                Confidence.HIGH,
-                "Uses the challenge calibration anchor for this organization to keep the score aligned with the benchmark sheet.",
+            return _dimension(
+                value=calibration["sector_fit"],
+                confidence=Confidence.HIGH,
+                rationale="Uses the challenge calibration anchor for this organization to keep the score aligned with the benchmark sheet.",
             )
 
         org_type = contact.org_type.strip().lower()
         signals = _signals(enrichment)
         if org_type in SERVICE_PROVIDER_TYPES or signals["service_provider"]:
-            return ScoreDimension(
-                1.5,
-                Confidence.HIGH,
-                "This profile looks like a GP, broker, or service provider rather than an LP allocator into external funds.",
+            return _dimension(
+                value=1.5,
+                confidence=Confidence.HIGH,
+                rationale="This profile looks like a GP, broker, or service provider rather than an LP allocator into external funds.",
             )
 
         allocator_level = _allocator_evidence_level(contact, enrichment)
         mandate_level = _mandate_evidence_level(contact, enrichment)
 
         if allocator_level >= 3 and mandate_level >= 2:
-            return ScoreDimension(
-                8.5,
-                Confidence.HIGH,
-                "Evidence supports both external-manager allocation behavior and a sustainability or impact mandate.",
+            return _dimension(
+                value=8.5,
+                confidence=Confidence.HIGH,
+                rationale="Evidence supports both external-manager allocation behavior and a sustainability or impact mandate.",
             )
         if allocator_level >= 2 and mandate_level >= 2:
-            return ScoreDimension(
-                7.5,
-                Confidence.MEDIUM,
-                "Allocator evidence and mandate evidence are both present, but not yet at calibration-anchor strength.",
+            return _dimension(
+                value=7.5,
+                confidence=Confidence.MEDIUM,
+                rationale="Allocator evidence and mandate evidence are both present, but not yet at calibration-anchor strength.",
             )
         if allocator_level >= 1 and mandate_level >= 2:
-            return ScoreDimension(
-                6.5,
-                Confidence.MEDIUM,
-                "Mandate alignment is visible, but external allocation evidence is still partly inferred rather than explicitly documented.",
+            return _dimension(
+                value=6.5,
+                confidence=Confidence.MEDIUM,
+                rationale="Mandate alignment is visible, but external allocation evidence is still partly inferred rather than explicitly documented.",
+                insufficient_evidence=True,
             )
         if allocator_level >= 2:
-            return ScoreDimension(
-                6.0,
-                Confidence.MEDIUM,
-                "There is allocator evidence, but sustainability or impact alignment is still weak or indirect.",
+            return _dimension(
+                value=6.0,
+                confidence=Confidence.MEDIUM,
+                rationale="There is allocator evidence, but sustainability or impact alignment is still weak or indirect.",
+                insufficient_evidence=True,
             )
         if allocator_level >= 1 and mandate_level >= 1:
-            return ScoreDimension(
-                5.5,
-                Confidence.LOW,
-                "The profile is directionally plausible, but both allocator evidence and mandate evidence are still thin.",
+            return _dimension(
+                value=5.5,
+                confidence=Confidence.LOW,
+                rationale="The profile is directionally plausible, but both allocator evidence and mandate evidence are still thin.",
+                insufficient_evidence=True,
             )
         if org_type in ALLOCATOR_ORG_TYPES:
-            return ScoreDimension(
-                5.0,
-                Confidence.LOW,
-                "The organization type could be a fit, but the public evidence is too thin to score it aggressively.",
+            return _dimension(
+                value=5.0,
+                confidence=Confidence.LOW,
+                rationale="The organization type could be a fit, but the public evidence is too thin to score it aggressively.",
+                insufficient_evidence=True,
             )
-        return ScoreDimension(
-            3.5,
-            Confidence.LOW,
-            "Insufficient public evidence of both LP behavior and mandate alignment. Defaulting conservatively as instructed.",
+        return _dimension(
+            value=3.5,
+            confidence=Confidence.LOW,
+            rationale="Insufficient public evidence of both LP behavior and mandate alignment. Defaulting conservatively as instructed.",
+            insufficient_evidence=True,
         )
 
     def _score_halo(
@@ -148,55 +158,59 @@ class StarterScoringEngine:
         calibration: dict[str, float] | None,
     ) -> ScoreDimension:
         if calibration is not None:
-            return ScoreDimension(
-                calibration["halo_value"],
-                Confidence.HIGH,
-                "Uses the challenge calibration anchor for this organization to keep the halo score aligned with the benchmark sheet.",
+            return _dimension(
+                value=calibration["halo_value"],
+                confidence=Confidence.HIGH,
+                rationale="Uses the challenge calibration anchor for this organization to keep the halo score aligned with the benchmark sheet.",
             )
 
         org_type = contact.org_type.strip().lower()
         if org_type in SERVICE_PROVIDER_TYPES:
-            return ScoreDimension(
-                3.0,
-                Confidence.MEDIUM,
-                "Service providers can be known in market niches, but they do not create the LP-signaling effect the rubric is looking for.",
+            return _dimension(
+                value=3.0,
+                confidence=Confidence.MEDIUM,
+                rationale="Service providers can be known in market niches, but they do not create the LP-signaling effect the rubric is looking for.",
             )
 
         brand_level = _brand_evidence_level(contact, enrichment)
         if org_type in INSTITUTIONAL_ALLOCATOR_TYPES and brand_level >= 3:
-            return ScoreDimension(
-                8.5,
-                Confidence.HIGH,
-                "The organization appears institutionally visible and would likely create strong signaling value with other LPs.",
+            return _dimension(
+                value=8.5,
+                confidence=Confidence.HIGH,
+                rationale="The organization appears institutionally visible and would likely create strong signaling value with other LPs.",
             )
         if org_type in INSTITUTIONAL_ALLOCATOR_TYPES and brand_level >= 2:
-            return ScoreDimension(
-                7.0,
-                Confidence.MEDIUM,
-                "There is credible evidence of institutional recognition, but not enough to place it with the strongest halo anchors.",
+            return _dimension(
+                value=7.0,
+                confidence=Confidence.MEDIUM,
+                rationale="There is credible evidence of institutional recognition, but not enough to place it with the strongest halo anchors.",
             )
         if org_type in INSTITUTIONAL_ALLOCATOR_TYPES:
-            return ScoreDimension(
-                6.5,
-                Confidence.LOW,
-                "Institutional allocator status provides some signaling value, but the brand evidence is still generic rather than organization-specific.",
+            return _dimension(
+                value=6.5,
+                confidence=Confidence.LOW,
+                rationale="Institutional allocator status provides some signaling value, but the brand evidence is still generic rather than organization-specific.",
+                insufficient_evidence=True,
             )
         if org_type in {"multi-family office", "fund of funds"}:
-            return ScoreDimension(
-                5.5,
-                Confidence.LOW,
-                "This could help with validation, but the public brand signal is less durable than a recognized institutional allocator.",
+            return _dimension(
+                value=5.5,
+                confidence=Confidence.LOW,
+                rationale="This could help with validation, but the public brand signal is less durable than a recognized institutional allocator.",
+                insufficient_evidence=True,
             )
         if org_type in {"single family office", "hnwi"}:
-            return ScoreDimension(
-                4.0,
-                Confidence.LOW,
-                "Potentially helpful privately, but not the kind of visible win that reliably attracts a broad LP base.",
+            return _dimension(
+                value=4.0,
+                confidence=Confidence.LOW,
+                rationale="Potentially helpful privately, but not the kind of visible win that reliably attracts a broad LP base.",
+                insufficient_evidence=True,
             )
-        return ScoreDimension(
-            3.0,
-            Confidence.LOW,
-            "Little public evidence that this name would create broad signaling value for fundraising.",
+        return _dimension(
+            value=3.0,
+            confidence=Confidence.LOW,
+            rationale="Little public evidence that this name would create broad signaling value for fundraising.",
+            insufficient_evidence=True,
         )
 
     def _score_emerging(
@@ -206,50 +220,53 @@ class StarterScoringEngine:
         calibration: dict[str, float] | None,
     ) -> ScoreDimension:
         if calibration is not None:
-            return ScoreDimension(
-                calibration["emerging_fit"],
-                Confidence.HIGH,
-                "Uses the challenge calibration anchor for this organization to keep the emerging-manager score aligned with the benchmark sheet.",
+            return _dimension(
+                value=calibration["emerging_fit"],
+                confidence=Confidence.HIGH,
+                rationale="Uses the challenge calibration anchor for this organization to keep the emerging-manager score aligned with the benchmark sheet.",
             )
 
         org_type = contact.org_type.strip().lower()
         signals = _signals(enrichment)
         if org_type in SERVICE_PROVIDER_TYPES or signals["service_provider"]:
-            return ScoreDimension(
-                1.5,
-                Confidence.HIGH,
-                "This is not the kind of LP profile that backs emerging managers into external funds.",
+            return _dimension(
+                value=1.5,
+                confidence=Confidence.HIGH,
+                rationale="This is not the kind of LP profile that backs emerging managers into external funds.",
             )
 
         emerging_level = _emerging_evidence_level(contact, enrichment)
         if emerging_level >= 3:
-            return ScoreDimension(
-                8.0,
-                Confidence.HIGH,
-                "Public evidence suggests real openness to Fund I/Fund II or emerging-manager allocations.",
+            return _dimension(
+                value=8.0,
+                confidence=Confidence.HIGH,
+                rationale="Public evidence suggests real openness to Fund I/Fund II or emerging-manager allocations.",
             )
         if emerging_level >= 2:
-            return ScoreDimension(
-                6.5,
-                Confidence.MEDIUM,
-                "There are some signals of flexibility toward newer managers, but not enough to treat this as a strong anchor.",
+            return _dimension(
+                value=6.5,
+                confidence=Confidence.MEDIUM,
+                rationale="There are some signals of flexibility toward newer managers, but not enough to treat this as a strong anchor.",
             )
         if org_type in OPEN_TO_EMERGING_TYPES:
-            return ScoreDimension(
-                5.5,
-                Confidence.LOW,
-                "This org type can be structurally open to emerging managers, but the evidence is mostly structural rather than explicit.",
+            return _dimension(
+                value=5.5,
+                confidence=Confidence.LOW,
+                rationale="This org type can be structurally open to emerging managers, but the evidence is mostly structural rather than explicit.",
+                insufficient_evidence=True,
             )
         if org_type in {"pension", "insurance"}:
-            return ScoreDimension(
-                3.5,
-                Confidence.LOW,
-                "Institutional allocators of this type often need explicit evidence before they should score well on emerging-manager fit.",
+            return _dimension(
+                value=3.5,
+                confidence=Confidence.LOW,
+                rationale="Institutional allocators of this type often need explicit evidence before they should score well on emerging-manager fit.",
+                insufficient_evidence=True,
             )
-        return ScoreDimension(
-            3.0,
-            Confidence.LOW,
-            "There is not enough public evidence of appetite for backing emerging managers.",
+        return _dimension(
+            value=3.0,
+            confidence=Confidence.LOW,
+            rationale="There is not enough public evidence of appetite for backing emerging managers.",
+            insufficient_evidence=True,
         )
 
     def _build_prompt_artifacts(
@@ -378,3 +395,34 @@ def _has_explicit_term(text: str, terms: tuple[str, ...]) -> bool:
 def _has_investment_role(role: str) -> bool:
     role_text = role.lower()
     return any(term in role_text for term in INVESTMENT_ROLE_TERMS)
+
+
+def _dimension(
+    *,
+    value: float,
+    confidence: Confidence,
+    rationale: str,
+    insufficient_evidence: bool = False,
+) -> ScoreDimension:
+    if insufficient_evidence and "insufficient public evidence" not in rationale.lower():
+        rationale = f"{rationale} Insufficient public evidence was available to score this dimension confidently."
+    return ScoreDimension(
+        value=value,
+        confidence=confidence,
+        rationale=rationale,
+        insufficient_evidence=insufficient_evidence,
+    )
+
+
+def _insufficient_evidence_dimensions(
+    *,
+    sector_fit: ScoreDimension,
+    halo_value: ScoreDimension,
+    emerging_fit: ScoreDimension,
+) -> list[str]:
+    dimensions = {
+        "sector_fit": sector_fit,
+        "halo_value": halo_value,
+        "emerging_fit": emerging_fit,
+    }
+    return [name for name, dimension in dimensions.items() if dimension.insufficient_evidence]

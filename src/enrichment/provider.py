@@ -47,6 +47,20 @@ CALIBRATION_RESEARCH_PROFILES = {
         "brand": "Challenge anchor notes strong recognition in impact-investing circles.",
         "emerging": "Challenge anchor documents openness to emerging managers.",
     },
+    "inherent group": {
+        "aum": None,
+        "allocator": "Challenge anchor treats Inherent Group as a single-family office that likely allocates externally, but public evidence is limited.",
+        "sustainability": "Challenge anchor references internal ESG strategies rather than a clearly documented external-manager mandate.",
+        "brand": "Challenge anchor indicates limited public visibility despite allocator potential.",
+        "emerging": "Challenge anchor suggests structural openness as a single-family office, but no explicit emerging-manager program.",
+    },
+    "meridian capital group": {
+        "aum": None,
+        "allocator": "Challenge anchor identifies Meridian Capital Group as a CRE finance, investment-sales, and leasing advisory business rather than an LP allocator.",
+        "sustainability": "Challenge anchor does not identify a sustainability allocator mandate for Meridian Capital Group.",
+        "brand": "Challenge anchor describes niche market visibility, but not the type of LP halo signal relevant here.",
+        "emerging": "Challenge anchor treats Meridian Capital Group as a poor emerging-manager fit because it is not an LP allocator.",
+    },
 }
 
 ALLOCATOR_ROLE_KEYWORDS = {
@@ -67,8 +81,7 @@ SUSTAINABILITY_KEYWORDS = {
     "esg",
     "regenerative",
     "energy transition",
-    "education",
-    "health",
+    "responsible investing",
 }
 
 SERVICE_PROVIDER_KEYWORDS = {
@@ -124,6 +137,7 @@ class StarterEnrichmentProvider:
             "This enrichment pass is heuristic and prompt-backed, but still offline.",
             "Swap this provider with a live search/LLM implementation to replace the heuristic evidence buckets.",
             "The future live search path is constrained by a trusted-source policy and corroboration rules.",
+            "Org type alone is not treated as conclusive proof of external-manager allocation; explicit LP evidence remains the standard.",
         ]
         if anchor:
             notes.append("Calibration anchor matched: challenge benchmark evidence was injected for this organization.")
@@ -186,11 +200,11 @@ def _external_allocations_summary(
     if anchor:
         return anchor["allocator"]
     if org_type in {"foundation", "endowment", "pension", "insurance", "fund of funds"}:
-        return "Org type commonly allocates to external managers; confirm specific private credit exposure."
+        return "Org type suggests an investment office that may allocate to external managers, but explicit public evidence of private credit or direct-lending fund allocations is still required."
     if signals["allocator"]:
         return f"Allocator-like signals detected: {', '.join(signals['allocator'][:3])}."
     if org_type in {"single family office", "multi-family office", "hnwi"}:
-        return "Family-capital profile may allocate externally, but public evidence is often thin."
+        return "Family-capital profile may allocate externally, but public evidence is often thin and should not be overstated."
     if org_type in SERVICE_PROVIDER_TYPES:
         return "Current signal suggests the organization may manage or advise capital rather than allocate to outside funds."
     return "No external allocation signal captured yet."
@@ -206,7 +220,7 @@ def _sustainability_summary(
     if signals["sustainability"]:
         return f"Sustainability-oriented signals detected: {', '.join(signals['sustainability'][:3])}."
     if org_type in {"foundation", "endowment", "pension"}:
-        return "Institutional allocator type can support impact or climate mandates; verify fund-policy language."
+        return "Institutional allocator type can support impact or climate mandates, but investment-policy evidence is still needed."
     if org_type in {"single family office", "multi-family office"}:
         return "Private wealth allocator may have ESG preferences, but public documentation varies widely."
     return "Sustainability mandate unknown without live research."
@@ -223,7 +237,7 @@ def _brand_summary(
     if signals["brand"]:
         return f"Brand signals suggest institutional visibility: {', '.join(signals['brand'][:3])}."
     if org_type in {"foundation", "endowment", "pension"}:
-        return f"Institutional allocator in {region} may carry strong signaling value if publicly recognizable."
+        return f"Institutional allocator in {region} may carry signaling value, but organization-specific recognition evidence is still needed."
     if org_type in {"single family office", "hnwi"}:
         return "Private allocator may be influential but less visible to the broader LP market."
     return "Brand signal unknown pending organization-specific evidence."
@@ -239,7 +253,7 @@ def _emerging_manager_summary(
     if signals["emerging"]:
         return f"Emerging-manager-friendly signals detected: {', '.join(signals['emerging'][:3])}."
     if org_type in {"single family office", "multi-family office", "foundation", "endowment"}:
-        return "Org type can be structurally open to emerging managers if mandate flexibility exists."
+        return "Org type can be structurally open to emerging managers, but explicit evidence should outweigh type-based inference."
     if org_type in SERVICE_PROVIDER_TYPES:
         return "Emerging manager fit is weak unless the firm also allocates to third-party funds."
     return "Emerging manager appetite unknown without direct evidence."
@@ -270,6 +284,8 @@ def _collect_signals(
     _append_keyword_hits(organization_text, SUSTAINABILITY_KEYWORDS, signals["sustainability"], "organization")
     _append_keyword_hits(role_text, SUSTAINABILITY_KEYWORDS, signals["sustainability"], "role")
     _append_keyword_hits(organization_text, SERVICE_PROVIDER_KEYWORDS, signals["service_provider"], "organization")
+    if any(token in role_text for token in {"responsible investing", "impact investments", "sustainable investing"}):
+        signals["sustainability"].append("role:explicit-sustainability-mandate")
     if any(token in organization_text for token in {"foundation", "endowment", "pension", "trust", "university"}):
         signals["brand"].append("institutional-name-pattern")
     if org_type in {"foundation", "endowment", "pension"}:

@@ -106,6 +106,35 @@ class StarterScoringEngineTests(unittest.TestCase):
 
         self.assertLess(result.composite, 8.0)
         self.assertLess(result.sector_fit.value, 8.0)
+        self.assertTrue(result.sector_fit.insufficient_evidence)
+        self.assertIn("sector_fit", result.metadata["insufficient_evidence_dimensions"])
+
+    def test_sparse_profile_is_explicitly_marked_as_insufficient_evidence(self) -> None:
+        engine = StarterScoringEngine(PromptLibrary(Path.cwd() / "prompts"))
+        contact = ContactRecord(
+            contact_name="Sparse Contact",
+            organization="Quiet Family Office",
+            org_type="Single Family Office",
+            role="Principal",
+            email=None,
+            region="NYC",
+            contact_status="New Contact",
+            relationship_depth=3,
+        )
+        enrichment = EnrichmentRecord(
+            organization="Quiet Family Office",
+            canonical_org_name="quiet family office",
+            organization_type="Single Family Office",
+            allocator_profile="Likely LP allocator profile based on organization type.",
+        )
+
+        result = engine.score(contact, enrichment)
+
+        self.assertTrue(result.sector_fit.insufficient_evidence)
+        self.assertTrue(result.halo_value.insufficient_evidence)
+        self.assertTrue(result.emerging_fit.insufficient_evidence)
+        self.assertIn("Insufficient public evidence", result.sector_fit.rationale)
+        self.assertGreaterEqual(len(result.metadata["insufficient_evidence_dimensions"]), 1)
 
 
 if __name__ == "__main__":

@@ -85,6 +85,7 @@ class DashboardService:
             return
         flat_rows = []
         for row in rows:
+            insufficient_dimensions = row["score"].get("metadata", {}).get("insufficient_evidence_dimensions", [])
             flat_rows.append(
                 {
                     "contact_name": row["contact_name"],
@@ -98,6 +99,10 @@ class DashboardService:
                     "emerging_fit": row["emerging_fit"],
                     "composite": row["composite"],
                     "tier": row["tier"],
+                    "sector_confidence": row["score"]["sector_fit"]["confidence"],
+                    "halo_confidence": row["score"]["halo_value"]["confidence"],
+                    "emerging_confidence": row["score"]["emerging_fit"]["confidence"],
+                    "insufficient_evidence_dimensions": "; ".join(insufficient_dimensions),
                     "check_size_estimate": row["score"].get("check_size_estimate"),
                     "validation_flags": "; ".join(row["validation_flags"]),
                 }
@@ -215,12 +220,31 @@ def _summary_card(label: str, value: str) -> str:
 def _rows_to_table(rows: list[dict[str, Any]], include_flags: bool = False) -> str:
     if not rows:
         return "<p>No rows available.</p>"
-    headers = ["Organization", "Contact", "Tier", "Composite", "Sector", "Halo", "Emerging", "Check Size"]
+    headers = [
+        "Organization",
+        "Contact",
+        "Tier",
+        "Composite",
+        "Sector",
+        "Halo",
+        "Emerging",
+        "Confidence",
+        "Evidence Gaps",
+        "Check Size",
+    ]
     if include_flags:
         headers.append("Flags")
     header_html = "".join(f"<th>{escape(header)}</th>" for header in headers)
     body_parts: list[str] = []
     for row in rows:
+        insufficient_dimensions = row["score"].get("metadata", {}).get("insufficient_evidence_dimensions", [])
+        confidence_summary = "/".join(
+            [
+                row["score"]["sector_fit"]["confidence"],
+                row["score"]["halo_value"]["confidence"],
+                row["score"]["emerging_fit"]["confidence"],
+            ]
+        )
         columns = [
             escape(row["organization"]),
             escape(row["contact_name"]),
@@ -229,6 +253,8 @@ def _rows_to_table(rows: list[dict[str, Any]], include_flags: bool = False) -> s
             f"{row['sector_fit']:.2f}",
             f"{row['halo_value']:.2f}",
             f"{row['emerging_fit']:.2f}",
+            escape(confidence_summary),
+            escape(", ".join(insufficient_dimensions) or "None"),
             escape(str(row["score"].get("check_size_estimate") or "Unknown")),
         ]
         if include_flags:

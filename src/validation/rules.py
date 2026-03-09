@@ -23,6 +23,10 @@ class ValidationEngine:
             or score.emerging_fit.confidence == Confidence.LOW
         ):
             flags.append("High composite score built on low-confidence dimensions.")
+        if score.metadata.get("insufficient_evidence_dimensions") and score.composite >= 6.5:
+            flags.append(
+                "Strong-fit or better score includes dimensions marked as insufficient-evidence and should be reviewed."
+            )
         if org_type in SERVICE_PROVIDER_TYPES and score.tier in {"STRONG FIT", "PRIORITY CLOSE"}:
             flags.append("Non-LP profile reached a top outreach tier and should be reviewed.")
         if score.tier == "PRIORITY CLOSE" and contact.relationship_depth <= 3:

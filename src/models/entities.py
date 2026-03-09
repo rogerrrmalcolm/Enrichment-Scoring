@@ -49,6 +49,7 @@ class ScoreDimension:
     value: float
     confidence: Confidence
     rationale: str
+    insufficient_evidence: bool = False
 
 
 @dataclass(slots=True)

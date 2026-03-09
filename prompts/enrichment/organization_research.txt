@@ -11,10 +11,11 @@ Minimum corroboration threshold: {{minimum_corroboration}}
 
 Return structured notes covering:
 1. Whether this entity is an LP allocator, GP, lender, advisor, or mixed case.
-2. Evidence of external fund allocations.
+2. Evidence of external fund allocations, with a clear distinction between external-manager allocation and internal asset management.
 3. Evidence of sustainability/impact/climate mandate.
 4. AUM or investment pool size, if found.
 5. Brand/halo assessment.
 6. Emerging manager openness.
 7. Confidence level and missing data.
 8. Which trusted source types supported the conclusion.
+9. For foundations/endowments/pensions, whether the evidence came from investment-related pages versus mission/program pages.

@@ -9,6 +9,9 @@ Source quality rules:
 - Do not rely on a single weak source for allocator status, AUM, or emerging-manager evidence.
 - If the evidence is incomplete or conflicting, lower confidence and state that clearly.
 - Corroborate material claims with at least two trusted sources unless a primary filing or audited report already establishes the fact.
+- For foundations, endowments, pensions, and university-affiliated pools, prioritize investment-office and financial-reporting pages over charitable program pages.
+- Distinguish LPs from GPs, lenders, brokers, and service providers. Originating loans, underwriting deals, advisory work, or managing assets for others is not LP behavior by itself.
+- Do not treat org type alone as proof of external-manager allocation. Explicit evidence of investing in outside managers is materially stronger than archetype inference.
 
 Always research and return:
 - organization type
