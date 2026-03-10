@@ -88,6 +88,7 @@ class DashboardService:
             insufficient_dimensions = row["score"].get("metadata", {}).get("insufficient_evidence_dimensions", [])
             flat_rows.append(
                 {
+                    "run_id": run_id,
                     "contact_name": row["contact_name"],
                     "organization": row["organization"],
                     "org_type": row["org_type"],
@@ -102,9 +103,9 @@ class DashboardService:
                     "sector_confidence": row["score"]["sector_fit"]["confidence"],
                     "halo_confidence": row["score"]["halo_value"]["confidence"],
                     "emerging_confidence": row["score"]["emerging_fit"]["confidence"],
-                    "insufficient_evidence_dimensions": "; ".join(insufficient_dimensions),
-                    "check_size_estimate": row["score"].get("check_size_estimate"),
-                    "validation_flags": "; ".join(row["validation_flags"]),
+                    "insufficient_evidence_dimensions": _csv_text("; ".join(insufficient_dimensions), fallback="None"),
+                    "check_size_estimate": _csv_text(row["score"].get("check_size_estimate"), fallback="Unknown"),
+                    "validation_flags": _csv_text("; ".join(row["validation_flags"]), fallback="None"),
                 }
             )
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -344,3 +345,8 @@ def _methodology_section(methodology: dict[str, Any]) -> str:
         f"<h3>Method Steps</h3><ul>{step_list}</ul>"
         f"<h3>Trusted Source Tiers</h3><ul>{tier_list}</ul>"
     )
+
+
+def _csv_text(value: Any, *, fallback: str) -> str:
+    text = str(value).strip() if value is not None else ""
+    return text or fallback
