@@ -225,7 +225,10 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(exported_rows[0]["run_id"], run_id)
         self.assertEqual(exported_rows[0]["validation_flags"], "None")
         self.assertEqual(exported_rows[0]["check_size_estimate"], "Unknown")
-        self.assertEqual(exported_rows[0]["insufficient_evidence_dimensions"], "sector_fit; halo_value")
+        self.assertEqual(
+            exported_rows[0]["insufficient_evidence_dimensions"],
+            "sector_fit; halo_value; emerging_fit",
+        )
 
 
 if __name__ == "__main__":
