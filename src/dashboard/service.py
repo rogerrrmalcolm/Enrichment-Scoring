@@ -85,15 +85,28 @@ class DashboardService:
             return
         flat_rows = []
         for row in rows:
+            enrichment = row["enrichment"]
             insufficient_dimensions = row["score"].get("metadata", {}).get("insufficient_evidence_dimensions", [])
+            source_quality = _source_quality_fields(enrichment)
             flat_rows.append(
                 {
                     "run_id": run_id,
                     "contact_name": row["contact_name"],
                     "organization": row["organization"],
                     "org_type": row["org_type"],
+                    "enrichment_org_type": _csv_text(enrichment.get("organization_type"), fallback="Unknown"),
                     "region": row["region"],
                     "contact_status": row["contact_status"],
+                    "enrichment_mode": _csv_text(
+                        enrichment.get("raw_payload", {}).get("enrichment_mode"),
+                        fallback="unknown",
+                    ),
+                    "allocator_profile": _csv_text(enrichment.get("allocator_profile"), fallback="Unknown"),
+                    "aum": _csv_text(enrichment.get("aum"), fallback="Unknown"),
+                    "trusted_source_count": source_quality["trusted_source_count"],
+                    "blocked_source_count": source_quality["blocked_source_count"],
+                    "minimum_corroboration_met": source_quality["minimum_corroboration_met"],
+                    "manual_review_required": source_quality["manual_review_required"],
                     "relationship_depth": row["relationship_depth"],
                     "sector_fit": row["sector_fit"],
                     "halo_value": row["halo_value"],
@@ -350,3 +363,16 @@ def _methodology_section(methodology: dict[str, Any]) -> str:
 def _csv_text(value: Any, *, fallback: str) -> str:
     text = str(value).strip() if value is not None else ""
     return text or fallback
+
+
+def _source_quality_fields(enrichment: dict[str, Any]) -> dict[str, int | bool]:
+    raw_payload = enrichment.get("raw_payload", {})
+    source_quality = raw_payload.get("source_quality", {})
+    if not isinstance(source_quality, dict):
+        source_quality = {}
+    return {
+        "trusted_source_count": int(source_quality.get("trusted_source_count", 0) or 0),
+        "blocked_source_count": int(source_quality.get("blocked_source_count", 0) or 0),
+        "minimum_corroboration_met": bool(source_quality.get("minimum_corroboration_met", False)),
+        "manual_review_required": bool(source_quality.get("needs_manual_review", False)),
+    }

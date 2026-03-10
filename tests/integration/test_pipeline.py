@@ -223,6 +223,17 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
 
         self.assertEqual(len(exported_rows), 1)
         self.assertEqual(exported_rows[0]["run_id"], run_id)
+        self.assertEqual(exported_rows[0]["enrichment_mode"], "heuristic_offline")
+        self.assertEqual(exported_rows[0]["enrichment_org_type"], "Foundation")
+        self.assertEqual(
+            exported_rows[0]["allocator_profile"],
+            "Likely LP allocator profile based on organization type.",
+        )
+        self.assertEqual(exported_rows[0]["aum"], "Unknown")
+        self.assertEqual(exported_rows[0]["trusted_source_count"], "0")
+        self.assertEqual(exported_rows[0]["blocked_source_count"], "0")
+        self.assertEqual(exported_rows[0]["minimum_corroboration_met"], "False")
+        self.assertEqual(exported_rows[0]["manual_review_required"], "False")
         self.assertEqual(exported_rows[0]["validation_flags"], "None")
         self.assertEqual(exported_rows[0]["check_size_estimate"], "Unknown")
         self.assertEqual(
