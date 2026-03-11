@@ -180,6 +180,81 @@ class StarterEnrichmentProviderTests(unittest.TestCase):
             raw_payload={"enrichment_mode": HEURISTIC_ENRICHMENT_MODE},
         )))
 
+    def test_live_aum_falls_back_to_calibration_anchor_when_public_value_is_unavailable(self) -> None:
+        structured = {
+            "organization_type": "Pension",
+            "allocator_profile": "Institutional LP allocator.",
+            "external_allocations": {
+                "summary": "The organization allocates to external managers.",
+                "confidence": "high",
+                "sufficient_evidence": True,
+                "citations": ["https://www.example.org/investments"],
+            },
+            "sustainability_mandate": {
+                "summary": "Responsible investing language appears in the investment policy.",
+                "confidence": "medium",
+                "sufficient_evidence": True,
+                "citations": ["https://www.example.org/policy"],
+            },
+            "aum": {
+                "value": "Not publicly disclosed",
+                "summary": "No public AUM value was found.",
+                "confidence": "low",
+                "sufficient_evidence": False,
+                "citations": [],
+            },
+            "brand_signal": {
+                "summary": "Known allocator in impact circles.",
+                "confidence": "medium",
+                "sufficient_evidence": True,
+                "citations": ["https://www.example.org/about"],
+            },
+            "emerging_manager_program": {
+                "summary": "The allocator has demonstrated openness to emerging managers.",
+                "confidence": "medium",
+                "sufficient_evidence": True,
+                "citations": ["https://www.example.org/manager-program"],
+            },
+            "notes": [],
+            "source_quality": {
+                "gaps": ["Public AUM was not disclosed."],
+                "corroborated_claims": ["allocator status"],
+                "needs_manual_review": False,
+            },
+        }
+        response_payload = {
+            "output": [
+                {
+                    "type": "web_search_call",
+                    "action": {"sources": [{"url": "https://www.example.org/investments"}]},
+                },
+                {
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": json.dumps(structured), "annotations": []}],
+                },
+            ]
+        }
+        provider = _StubLiveProvider(response_payload)
+
+        record = provider.enrich(
+            "pension boards united church of christ",
+            [
+                ContactRecord(
+                    contact_name="Anchor Contact",
+                    organization="Pension Boards United Church of Christ",
+                    org_type="Pension",
+                    role="Director, Responsible Investing",
+                    email=None,
+                    region="NYC",
+                    contact_status="Existing Contact",
+                    relationship_depth=9,
+                )
+            ],
+        )
+
+        self.assertEqual(record.aum, "$2.0B")
+        self.assertIn("challenge calibration anchor", " ".join(record.notes).lower())
+
 
 if __name__ == "__main__":
     unittest.main()

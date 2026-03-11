@@ -16,6 +16,9 @@ def load_contacts(csv_path: Path) -> list[ContactRecord]:
                 continue
             if not _has_required_contact_fields(cleaned_row):
                 continue
+            relationship_depth = _parse_relationship_depth(cleaned_row["Relationship Depth"])
+            if relationship_depth is None:
+                continue
             contacts.append(
                 ContactRecord(
                     contact_name=cleaned_row["Contact Name"],
@@ -25,7 +28,7 @@ def load_contacts(csv_path: Path) -> list[ContactRecord]:
                     email=(cleaned_row["Email"] or None),
                     region=cleaned_row["Region"],
                     contact_status=cleaned_row["Contact Status"],
-                    relationship_depth=int(cleaned_row["Relationship Depth"]),
+                    relationship_depth=relationship_depth,
                 )
             )
     return contacts
@@ -41,3 +44,13 @@ def _has_required_contact_fields(row: dict[str, str]) -> bool:
         "Relationship Depth",
     )
     return all(row.get(field, "") for field in required_fields)
+
+
+def _parse_relationship_depth(raw_value: str) -> int | None:
+    try:
+        relationship_depth = int(raw_value)
+    except ValueError:
+        return None
+    if not 1 <= relationship_depth <= 10:
+        return None
+    return relationship_depth

@@ -105,6 +105,17 @@ LIVE_ENRICHMENT_MODE = "live_openai_web_search"
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1/responses"
 DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
 DEFAULT_OPENAI_TIMEOUT_SECONDS = 45.0
+AUM_UNAVAILABLE_MARKERS = (
+    "unknown",
+    "n/a",
+    "na",
+    "none",
+    "not publicly disclosed",
+    "not disclosed",
+    "not publicly available",
+    "unavailable",
+    "undisclosed",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,8 +277,15 @@ class StarterEnrichmentProvider:
 
         organization_type_value = str(structured.get("organization_type", "")).strip() or org_type.title()
         allocator_profile_value = str(structured.get("allocator_profile", "")).strip() or _allocator_profile(org_type)
-        aum_value = _parse_aum_value(structured.get("aum"))
+        live_aum_value = _parse_aum_value(structured.get("aum"))
+        aum_value = live_aum_value
+        if aum_value is None and fallback.aum:
+            aum_value = fallback.aum
         live_notes = _live_notes(structured, source_quality)
+        if aum_value == fallback.aum and fallback.aum and live_aum_value is None:
+            live_notes.append(
+                "AUM fell back to the challenge calibration anchor because the live search response did not return a usable public value."
+            )
 
         return EnrichmentRecord(
             organization=primary.organization,
@@ -774,12 +792,22 @@ def _parse_aum_value(payload: object) -> str | None:
         value = payload.get("value")
         if value is None:
             return None
-        parsed = str(value).strip()
-        return parsed or None
+        return _normalize_aum_value(str(value))
     if payload is None:
         return None
-    parsed = str(payload).strip()
-    return parsed or None
+    return _normalize_aum_value(str(payload))
+
+
+def _normalize_aum_value(value: str) -> str | None:
+    parsed = " ".join(value.strip().split()).rstrip(".")
+    if not parsed:
+        return None
+    lowered = parsed.lower()
+    if lowered in AUM_UNAVAILABLE_MARKERS:
+        return None
+    if any(marker in lowered for marker in ("not publicly disclosed", "not disclosed", "not publicly available")):
+        return None
+    return parsed
 
 
 def _live_notes(structured: dict[str, object], source_quality: dict[str, object]) -> list[str]:

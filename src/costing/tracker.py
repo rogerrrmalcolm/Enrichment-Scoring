@@ -38,13 +38,13 @@ DEFAULT_PRICING: dict[str, OperationPricing] = {
     ),
     "scoring": OperationPricing(
         operation="scoring",
-        vendor="openai",
-        model="gpt-5-mini",
-        source_label="OpenAI API pricing",
-        source_url="https://openai.com/api/pricing/",
-        input_cost_per_1m_tokens=0.25,
-        cached_input_cost_per_1m_tokens=0.025,
-        output_cost_per_1m_tokens=2.00,
+        vendor="local",
+        model="deterministic_python",
+        source_label="Local scoring engine (not billable)",
+        source_url="",
+        input_cost_per_1m_tokens=0.0,
+        cached_input_cost_per_1m_tokens=0.0,
+        output_cost_per_1m_tokens=0.0,
         default_prompt_tokens=300,
         default_completion_tokens=260,
         default_tool_calls=0,
@@ -199,9 +199,22 @@ class CostTracker:
         effective_cost_per_contact = self.total_cost_usd / max(total_contacts, 1)
         effective_cost_per_organization = self.total_cost_usd / max(total_organizations, 1)
         cache_hit_rate = self.cache_hits / max(self.cache_hits + self.cache_misses, 1)
+        total_api_requests = sum(
+            totals.requests
+            for operation, totals in self.operations.items()
+            if self.pricing[operation].vendor != "local"
+        )
+        total_local_calls = sum(
+            totals.requests
+            for operation, totals in self.operations.items()
+            if self.pricing[operation].vendor == "local"
+        )
         return {
             "total_cost_usd": round(self.total_cost_usd, 6),
             "total_requests": self.total_requests,
+            "total_operation_calls": self.total_requests,
+            "total_api_requests": total_api_requests,
+            "total_local_calls": total_local_calls,
             "total_prompt_tokens": self.total_prompt_tokens,
             "total_completion_tokens": self.total_completion_tokens,
             "total_search_content_input_tokens": self.total_search_content_input_tokens,

@@ -22,6 +22,10 @@ class CostTrackerTests(unittest.TestCase):
         self.assertIn("provider_cache_cost_usd", snapshot["projections"][0])
         self.assertIn("app_cache_cost_usd", snapshot["projections"][0])
         self.assertEqual(snapshot["operation_breakdown"]["enrichment"]["tool_calls"], 1)
+        self.assertEqual(snapshot["operation_breakdown"]["scoring"]["vendor"], "local")
+        self.assertEqual(snapshot["operation_breakdown"]["scoring"]["cost_usd"], 0.0)
+        self.assertEqual(snapshot["total_api_requests"], 1)
+        self.assertEqual(snapshot["total_local_calls"], 1)
 
 
 if __name__ == "__main__":

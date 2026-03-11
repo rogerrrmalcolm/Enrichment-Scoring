@@ -331,8 +331,13 @@ Outputs will be written to:
 - `storage/db/prospects.sqlite3`
 - `data/processed/<run_id>_results.json`
 - `data/exports/<run_id>_leaderboard.csv`
+- `data/exports/<run_id>_run_summary.csv`
+- `data/exports/<run_id>_cost_breakdown.csv`
+- `data/exports/<run_id>_cost_projections.csv`
 - `data/exports/<run_id>_report.html`
 - `storage/state/<run_id>.json`
+
+The CLI prints all of these artifact paths when the run completes, plus the estimated API cost and the enrichment-mode mix for the leaderboard export.
 
 ### 5. Run the API
 
@@ -365,7 +370,13 @@ To keep the key out of source files, you can store it in a local PowerShell env 
 Notes:
 
 - `local.env.ps1` is ignored by git
-- add your real API key to `local.env.ps1` before loading it
+- create or edit `local.env.ps1` locally with:
+
+  ```powershell
+  $env:OPENAI_API_KEY="your_openai_key"
+  $env:PACEZERO_ENABLE_LIVE_ENRICHMENT="true"
+  ```
+
 - the leading `. ` loads the environment variables into the current PowerShell session
 
 Optional settings:
@@ -379,6 +390,8 @@ Notes:
 
 - If live enrichment is disabled, the project still runs using the offline heuristic provider.
 - If the live call fails, the provider falls back to the offline path and records the error in the enrichment payload.
+- A live run can still contain a small number of heuristic fallback rows if individual enrichment calls fail.
+- The easiest verification step is to check the exported leaderboard CSV and confirm `enrichment_mode` contains `live_openai_web_search`.
 
 ## Environment Variables
 
@@ -421,6 +434,12 @@ This validates:
 - API boot path
 - live provider parsing and fallback logic
 
+## Operator Notes
+
+- Malformed CSV rows are skipped rather than crashing the whole run. A row must include the required fields and a valid `Relationship Depth` between `1` and `10`.
+- The scoring engine is deterministic local Python. Only the live enrichment step generates API cost.
+- Cost exports are written per run so BI tools can track total API spend, cost per contact, cache savings, and scale projections over time.
+
 ## How The Results Are Viewed
 
 ### HTML report
@@ -446,6 +465,25 @@ The leaderboard export includes flat fields that are easy to review in Excel or 
 - insufficient-evidence dimensions
 - check-size estimate
 - validation flags
+- enrichment mode, researched org type, AUM, and source-quality fields
+- repeated run-level cost fields so a BI tool can join prospect rows to run economics without extra SQL
+
+### Run-level BI cost files
+
+Each run also exports:
+
+- `data/exports/<run_id>_run_summary.csv`
+- `data/exports/<run_id>_cost_breakdown.csv`
+- `data/exports/<run_id>_cost_projections.csv`
+
+These are intended for BI/reporting use cases where you want:
+
+- total API cost per run
+- billable API request count vs local scoring call count
+- enrichment cost vs local scoring activity
+- cache hit rate and avoided cost
+- effective cost per contact / per organization
+- scale projections for `100`, `1000`, and `5000` contacts
 
 ## Power BI
 
@@ -461,6 +499,9 @@ You can also use:
 
 - `storage/db/prospects.sqlite3`
 - `data/processed/<run_id>_results.json`
+- `data/exports/<run_id>_run_summary.csv`
+- `data/exports/<run_id>_cost_breakdown.csv`
+- `data/exports/<run_id>_cost_projections.csv`
 
 ## Security and Operational Notes
 

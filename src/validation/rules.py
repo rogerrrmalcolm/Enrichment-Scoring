@@ -12,7 +12,7 @@ class ValidationEngine:
         score: ProspectScore,
     ) -> list[str]:
         flags: list[str] = []
-        org_type = contact.org_type.strip().lower()
+        org_type = (enrichment.organization_type or contact.org_type).strip().lower()
         if org_type in SERVICE_PROVIDER_TYPES and score.sector_fit.value >= 5.0:
             flags.append("Service-provider-like org scored too high on sector fit.")
         if org_type in ALLOCATOR_ORG_TYPES and score.sector_fit.value <= 3.5:

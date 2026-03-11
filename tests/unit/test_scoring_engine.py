@@ -136,6 +136,31 @@ class StarterScoringEngineTests(unittest.TestCase):
         self.assertIn("Insufficient public evidence", result.sector_fit.rationale)
         self.assertGreaterEqual(len(result.metadata["insufficient_evidence_dimensions"]), 1)
 
+    def test_enrichment_org_type_overrides_crm_org_type_for_scoring_and_check_size(self) -> None:
+        engine = StarterScoringEngine(PromptLibrary(Path.cwd() / "prompts"))
+        contact = ContactRecord(
+            contact_name="Corrected Contact",
+            organization="Corrected Foundation",
+            org_type="Asset Manager",
+            role="Director of Investments",
+            email=None,
+            region="NYC",
+            contact_status="New Contact",
+            relationship_depth=7,
+        )
+        enrichment = EnrichmentRecord(
+            organization="Corrected Foundation",
+            canonical_org_name="corrected foundation",
+            organization_type="Foundation",
+            allocator_profile="Institutional LP allocator with evidence of external-manager selection.",
+            aum="$1.0B",
+        )
+
+        result = engine.score(contact, enrichment)
+
+        self.assertGreater(result.sector_fit.value, 4.0)
+        self.assertEqual(result.check_size_estimate, "$10.00M-$30.00M")
+
 
 if __name__ == "__main__":
     unittest.main()

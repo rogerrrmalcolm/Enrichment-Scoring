@@ -224,7 +224,7 @@ class DashboardService:
                 _summary_card("Organizations", str(summary["org_count"])),
                 _summary_card("Avg Composite", f"{summary['avg_composite']:.2f}"),
                 _summary_card("Flagged", str(summary["flagged_count"])),
-                _summary_card("Estimated Cost", f"${summary['cost'].get('total_cost_usd', 0):.4f}"),
+                _summary_card("Estimated API Cost", f"${summary['cost'].get('total_cost_usd', 0):.4f}"),
                 _summary_card("Cost / Contact", f"${summary['cost'].get('effective_cost_per_contact_usd', 0):.4f}"),
                 _summary_card("Avoided Cost", f"${summary['cost'].get('avoided_cost_usd', 0):.4f}"),
             ]
@@ -344,7 +344,7 @@ def _rows_to_table(rows: list[dict[str, Any]], include_flags: bool = False) -> s
 def _cost_operation_table(operation_breakdown: dict[str, Any]) -> str:
     if not operation_breakdown:
         return "<p>No cost data available.</p>"
-    headers = ["Operation", "Model", "Requests", "Prompt Tokens", "Search Tokens", "Tool Calls", "Completion Tokens", "Cost (USD)"]
+    headers = ["Operation", "Model", "Calls", "Prompt Tokens", "Search Tokens", "Tool Calls", "Completion Tokens", "Cost (USD)"]
     header_html = "".join(f"<th>{escape(header)}</th>" for header in headers)
     body_parts: list[str] = []
     for operation_name, payload in sorted(operation_breakdown.items()):
@@ -445,6 +445,9 @@ def _summary_cost_fields(summary: dict[str, Any]) -> dict[str, Any]:
     return {
         "run_total_cost_usd": cost.get("total_cost_usd", 0.0),
         "run_total_requests": cost.get("total_requests", 0),
+        "run_total_operation_calls": cost.get("total_operation_calls", cost.get("total_requests", 0)),
+        "run_total_api_requests": cost.get("total_api_requests", 0),
+        "run_total_local_calls": cost.get("total_local_calls", 0),
         "run_total_tool_calls": cost.get("total_tool_calls", 0),
         "run_effective_cost_per_contact_usd": cost.get("effective_cost_per_contact_usd", 0.0),
         "run_effective_cost_per_organization_usd": cost.get("effective_cost_per_organization_usd", 0.0),

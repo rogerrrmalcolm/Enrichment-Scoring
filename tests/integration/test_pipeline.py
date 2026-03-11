@@ -195,6 +195,18 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
                 ]
             )
             writer.writerow(["", "", "", "", "", "", "", "5"])
+            writer.writerow(
+                [
+                    "Bad Depth",
+                    "Example Foundation",
+                    "Foundation",
+                    "Director of Investments",
+                    "",
+                    "NYC",
+                    "New Contact",
+                    "abc",
+                ]
+            )
         (root / "prompts" / "enrichment" / "system.txt").write_text("Research prompt system.", encoding="utf-8")
         (root / "prompts" / "enrichment" / "organization_research.txt").write_text(
             "Org {{organization}} type {{org_type}} regions {{regions}} roles {{roles}} count {{contact_count}} trusted {{trusted_sources}} blocked {{blocked_sources}} corroboration {{minimum_corroboration}}",
@@ -240,6 +252,8 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(exported_rows[0]["validation_flags"], "None")
         self.assertEqual(exported_rows[0]["check_size_estimate"], "Unknown")
         self.assertIn("run_total_cost_usd", exported_rows[0])
+        self.assertIn("run_total_api_requests", exported_rows[0])
+        self.assertIn("run_total_local_calls", exported_rows[0])
         self.assertIn("run_effective_cost_per_contact_usd", exported_rows[0])
         self.assertIn("run_enrichment_cost_usd", exported_rows[0])
         self.assertEqual(

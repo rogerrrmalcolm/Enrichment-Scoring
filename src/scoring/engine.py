@@ -44,6 +44,7 @@ class StarterScoringEngine:
 
     def score(self, contact: ContactRecord, enrichment: EnrichmentRecord) -> ProspectScore:
         calibration = CALIBRATION_SCORECARDS.get(enrichment.canonical_org_name.lower())
+        effective_org_type = _effective_org_type(contact, enrichment)
         sector_fit = self._score_sector_fit(contact, enrichment, calibration)
         relationship_depth = _dimension(
             value=float(contact.relationship_depth),
@@ -66,7 +67,7 @@ class StarterScoringEngine:
             emerging_fit=emerging_fit,
             composite=composite,
             tier=_tier_for_score(composite),
-            check_size_estimate=estimate_check_size(enrichment.aum, contact.org_type),
+            check_size_estimate=estimate_check_size(enrichment.aum, effective_org_type),
             metadata={
                 "prompt_artifacts": self._build_prompt_artifacts(contact, enrichment),
                 "formula": FORMULA_DESCRIPTION,
@@ -92,7 +93,7 @@ class StarterScoringEngine:
                 rationale="Uses the challenge calibration anchor for this organization to keep the score aligned with the benchmark sheet.",
             )
 
-        org_type = contact.org_type.strip().lower()
+        org_type = _effective_org_type(contact, enrichment)
         signals = _signals(enrichment)
         if org_type in SERVICE_PROVIDER_TYPES or signals["service_provider"]:
             return _dimension(
@@ -164,7 +165,7 @@ class StarterScoringEngine:
                 rationale="Uses the challenge calibration anchor for this organization to keep the halo score aligned with the benchmark sheet.",
             )
 
-        org_type = contact.org_type.strip().lower()
+        org_type = _effective_org_type(contact, enrichment)
         if org_type in SERVICE_PROVIDER_TYPES:
             return _dimension(
                 value=3.0,
@@ -226,7 +227,7 @@ class StarterScoringEngine:
                 rationale="Uses the challenge calibration anchor for this organization to keep the emerging-manager score aligned with the benchmark sheet.",
             )
 
-        org_type = contact.org_type.strip().lower()
+        org_type = _effective_org_type(contact, enrichment)
         signals = _signals(enrichment)
         if org_type in SERVICE_PROVIDER_TYPES or signals["service_provider"]:
             return _dimension(
@@ -279,7 +280,7 @@ class StarterScoringEngine:
 
         prompt_context = {
             "organization": contact.organization,
-            "org_type": contact.org_type,
+            "org_type": enrichment.organization_type or contact.org_type,
             "relationship_depth": contact.relationship_depth,
             "allocator_profile": enrichment.allocator_profile,
             "external_allocations": enrichment.external_allocations.summary,
@@ -304,6 +305,10 @@ def _tier_for_score(composite: float) -> str:
     return "WEAK FIT"
 
 
+def _effective_org_type(contact: ContactRecord, enrichment: EnrichmentRecord) -> str:
+    return (enrichment.organization_type or contact.org_type).strip().lower()
+
+
 def _signals(enrichment: EnrichmentRecord) -> dict[str, list[str]]:
     raw_signals = enrichment.raw_payload.get("signals", {})
     return {
@@ -318,6 +323,7 @@ def _signals(enrichment: EnrichmentRecord) -> dict[str, list[str]]:
 def _allocator_evidence_level(contact: ContactRecord, enrichment: EnrichmentRecord) -> int:
     summary = enrichment.external_allocations.summary.lower()
     sources = enrichment.external_allocations.sources
+    org_type = _effective_org_type(contact, enrichment)
     if _has_anchor_source(sources):
         return 3
     if _has_explicit_term(summary, ALLOCATOR_EXPLICIT_TERMS) and not _has_explicit_term(summary, GENERIC_ALLOCATOR_SUMMARY_TERMS):
@@ -325,7 +331,7 @@ def _allocator_evidence_level(contact: ContactRecord, enrichment: EnrichmentReco
     meaningful_sources = _meaningful_sources(sources)
     if meaningful_sources and _has_investment_role(contact.role):
         return 2
-    if meaningful_sources or contact.org_type.strip().lower() in ALLOCATOR_ORG_TYPES or _has_investment_role(contact.role):
+    if meaningful_sources or org_type in ALLOCATOR_ORG_TYPES or _has_investment_role(contact.role):
         return 1
     return 0
 
@@ -334,13 +340,14 @@ def _mandate_evidence_level(contact: ContactRecord, enrichment: EnrichmentRecord
     summary = enrichment.sustainability_mandate.summary.lower()
     sources = enrichment.sustainability_mandate.sources
     context = f"{contact.organization} {contact.role}".lower()
+    org_type = _effective_org_type(contact, enrichment)
     if _has_anchor_source(sources):
         return 3
     if _has_explicit_term(summary, MANDATE_TERMS) and sources:
         return 2
     if _has_explicit_term(context, MANDATE_TERMS):
         return 2
-    if contact.org_type.strip().lower() in INSTITUTIONAL_ALLOCATOR_TYPES:
+    if org_type in INSTITUTIONAL_ALLOCATOR_TYPES:
         return 1
     return 0
 
@@ -348,13 +355,14 @@ def _mandate_evidence_level(contact: ContactRecord, enrichment: EnrichmentRecord
 def _brand_evidence_level(contact: ContactRecord, enrichment: EnrichmentRecord) -> int:
     summary = enrichment.brand_signal.summary.lower()
     sources = enrichment.brand_signal.sources
+    org_type = _effective_org_type(contact, enrichment)
     if _has_anchor_source(sources):
         return 3
     if _has_explicit_term(summary, ("globally recognized", "strong recognition", "strong signaling")):
         return 3
     if _meaningful_sources(sources):
         return 2
-    if contact.org_type.strip().lower() in INSTITUTIONAL_ALLOCATOR_TYPES or sources:
+    if org_type in INSTITUTIONAL_ALLOCATOR_TYPES or sources:
         return 1
     return 0
 
@@ -363,13 +371,14 @@ def _emerging_evidence_level(contact: ContactRecord, enrichment: EnrichmentRecor
     summary = enrichment.emerging_manager_program.summary.lower()
     sources = enrichment.emerging_manager_program.sources
     context = f"{contact.organization} {contact.role}".lower()
+    org_type = _effective_org_type(contact, enrichment)
     if _has_anchor_source(sources):
         return 3
     if _has_explicit_term(summary, EMERGING_EXPLICIT_TERMS):
         return 3
     if _meaningful_sources(sources) or _has_explicit_term(context, EMERGING_EXPLICIT_TERMS):
         return 2
-    if contact.org_type.strip().lower() in OPEN_TO_EMERGING_TYPES:
+    if org_type in OPEN_TO_EMERGING_TYPES:
         return 1
     return 0
 
