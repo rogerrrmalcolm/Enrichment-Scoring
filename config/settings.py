@@ -62,6 +62,15 @@ class AppSettings:
     def leaderboard_path(self, run_id: str) -> Path:
         return self.export_dir / f"{run_id}_leaderboard.csv"
 
+    def run_summary_path(self, run_id: str) -> Path:
+        return self.export_dir / f"{run_id}_run_summary.csv"
+
+    def cost_breakdown_path(self, run_id: str) -> Path:
+        return self.export_dir / f"{run_id}_cost_breakdown.csv"
+
+    def cost_projections_path(self, run_id: str) -> Path:
+        return self.export_dir / f"{run_id}_cost_projections.csv"
+
     def report_path(self, run_id: str) -> Path:
         return self.export_dir / f"{run_id}_report.html"
 

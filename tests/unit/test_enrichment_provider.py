@@ -44,6 +44,41 @@ class StarterEnrichmentProviderTests(unittest.TestCase):
         self.assertEqual(record.raw_payload["enrichment_mode"], HEURISTIC_ENRICHMENT_MODE)
         self.assertEqual(record.raw_payload["estimated_tool_calls"], 0)
 
+    def test_live_request_payload_only_uses_supported_include_values(self) -> None:
+        provider = StarterEnrichmentProvider(
+            PromptLibrary(Path.cwd() / "prompts"),
+            enable_live_enrichment=True,
+            openai_api_key="test-key",
+        )
+        payload = provider._build_live_request_payload(
+            "system prompt",
+            "research prompt",
+            ContactRecord(
+                contact_name="Test Contact",
+                organization="Example Foundation",
+                org_type="Foundation",
+                role="Director of Investments",
+                email=None,
+                region="NYC",
+                contact_status="New Contact",
+                relationship_depth=5,
+            ),
+            [
+                ContactRecord(
+                    contact_name="Test Contact",
+                    organization="Example Foundation",
+                    org_type="Foundation",
+                    role="Director of Investments",
+                    email=None,
+                    region="NYC",
+                    contact_status="New Contact",
+                    relationship_depth=5,
+                )
+            ],
+        )
+
+        self.assertEqual(payload["include"], ["web_search_call.action.sources"])
+
     def test_live_enrichment_uses_citations_and_marks_mode(self) -> None:
         structured = {
             "organization_type": "Foundation",

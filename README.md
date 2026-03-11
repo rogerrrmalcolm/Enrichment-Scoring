@@ -355,6 +355,20 @@ $env:OPENAI_API_KEY="your_openai_key"
 $env:PACEZERO_ENABLE_LIVE_ENRICHMENT="true"
 ```
 
+To keep the key out of source files, you can store it in a local PowerShell env file:
+
+```powershell
+Copy-Item .\local.env.example.ps1 .\local.env.ps1
+. .\local.env.ps1
+.\.venv\Scripts\python.exe scripts\run_pipeline.py
+```
+
+Notes:
+
+- `local.env.ps1` is ignored by git
+- update `local.env.ps1` with your real API key before loading it
+- the leading `. ` loads the environment variables into the current PowerShell session
+
 Optional settings:
 
 ```powershell

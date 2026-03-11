@@ -83,6 +83,8 @@ class DashboardService:
         rows = self.fetch_run_rows(run_id)
         if not rows:
             return
+        summary = self.fetch_run_summary(run_id)
+        run_cost_fields = _summary_cost_fields(summary)
         flat_rows = []
         for row in rows:
             enrichment = row["enrichment"]
@@ -119,13 +121,73 @@ class DashboardService:
                     "insufficient_evidence_dimensions": _csv_text("; ".join(insufficient_dimensions), fallback="None"),
                     "check_size_estimate": _csv_text(row["score"].get("check_size_estimate"), fallback="Unknown"),
                     "validation_flags": _csv_text("; ".join(row["validation_flags"]), fallback="None"),
+                    **run_cost_fields,
                 }
             )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        with destination.open("w", encoding="utf-8", newline="") as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(flat_rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(flat_rows)
+        _write_csv_rows(destination, flat_rows)
+
+    def export_run_summary_csv(self, run_id: str, destination: Path) -> None:
+        summary = self.fetch_run_summary(run_id)
+        row = {
+            "run_id": summary["run_id"],
+            "prospect_count": summary["prospect_count"],
+            "org_count": summary["org_count"],
+            "avg_composite": summary["avg_composite"],
+            "flagged_count": summary["flagged_count"],
+            "priority_close_count": summary["tier_counts"].get("PRIORITY CLOSE", 0),
+            "strong_fit_count": summary["tier_counts"].get("STRONG FIT", 0),
+            "moderate_fit_count": summary["tier_counts"].get("MODERATE FIT", 0),
+            "weak_fit_count": summary["tier_counts"].get("WEAK FIT", 0),
+            **_summary_cost_fields(summary),
+        }
+        _write_csv_rows(destination, [row])
+
+    def export_run_cost_breakdown_csv(self, run_id: str, destination: Path) -> None:
+        summary = self.fetch_run_summary(run_id)
+        cost = summary.get("cost", {})
+        rows = []
+        for operation_name, payload in sorted(cost.get("operation_breakdown", {}).items()):
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "operation": operation_name,
+                    "vendor": payload.get("vendor", "unknown"),
+                    "model": payload.get("model", "unknown"),
+                    "requests": payload.get("requests", 0),
+                    "prompt_tokens": payload.get("prompt_tokens", 0),
+                    "search_content_input_tokens": payload.get("search_content_input_tokens", 0),
+                    "tool_calls": payload.get("tool_calls", 0),
+                    "completion_tokens": payload.get("completion_tokens", 0),
+                    "cost_usd": payload.get("cost_usd", 0.0),
+                    "avg_prompt_tokens": payload.get("avg_prompt_tokens", 0),
+                    "avg_completion_tokens": payload.get("avg_completion_tokens", 0),
+                    "avg_search_content_input_tokens": payload.get("avg_search_content_input_tokens", 0),
+                    "avg_tool_calls": payload.get("avg_tool_calls", 0),
+                    "cached_input_supported": payload.get("cached_input_supported", False),
+                }
+            )
+        if rows:
+            _write_csv_rows(destination, rows)
+
+    def export_run_cost_projections_csv(self, run_id: str, destination: Path) -> None:
+        summary = self.fetch_run_summary(run_id)
+        cost = summary.get("cost", {})
+        rows = []
+        for projection in cost.get("projections", []):
+            rows.append(
+                {
+                    "run_id": run_id,
+                    "target_contacts": projection.get("target_contacts", 0),
+                    "estimated_organizations": projection.get("estimated_organizations", 0),
+                    "cold_start_cost_usd": projection.get("cold_start_cost_usd", 0.0),
+                    "provider_cache_cost_usd": projection.get("provider_cache_cost_usd", 0.0),
+                    "app_cache_cost_usd": projection.get("app_cache_cost_usd", 0.0),
+                    "provider_cache_savings_usd": projection.get("provider_cache_savings_usd", 0.0),
+                    "app_cache_savings_usd": projection.get("app_cache_savings_usd", 0.0),
+                }
+            )
+        if rows:
+            _write_csv_rows(destination, rows)
 
     def export_run_html(self, run_id: str, destination: Path) -> None:
         rows = self.fetch_run_rows(run_id)
@@ -363,6 +425,35 @@ def _methodology_section(methodology: dict[str, Any]) -> str:
 def _csv_text(value: Any, *, fallback: str) -> str:
     text = str(value).strip() if value is not None else ""
     return text or fallback
+
+
+def _write_csv_rows(destination: Path, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _summary_cost_fields(summary: dict[str, Any]) -> dict[str, Any]:
+    cost = summary.get("cost", {})
+    operation_breakdown = cost.get("operation_breakdown", {})
+    enrichment_cost = operation_breakdown.get("enrichment", {}).get("cost_usd", 0.0)
+    scoring_cost = operation_breakdown.get("scoring", {}).get("cost_usd", 0.0)
+    return {
+        "run_total_cost_usd": cost.get("total_cost_usd", 0.0),
+        "run_total_requests": cost.get("total_requests", 0),
+        "run_total_tool_calls": cost.get("total_tool_calls", 0),
+        "run_effective_cost_per_contact_usd": cost.get("effective_cost_per_contact_usd", 0.0),
+        "run_effective_cost_per_organization_usd": cost.get("effective_cost_per_organization_usd", 0.0),
+        "run_cache_hit_rate": cost.get("cache_hit_rate", 0.0),
+        "run_avoided_cost_usd": cost.get("avoided_cost_usd", 0.0),
+        "run_total_rate_limit_wait_seconds": cost.get("total_rate_limit_wait_seconds", 0.0),
+        "run_enrichment_cost_usd": enrichment_cost,
+        "run_scoring_cost_usd": scoring_cost,
+    }
 
 
 def _source_quality_fields(enrichment: dict[str, Any]) -> dict[str, int | bool]:

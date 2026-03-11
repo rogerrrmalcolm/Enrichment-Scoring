@@ -81,6 +81,9 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(prospect_count, 1)
         self.assertTrue(settings.processed_output_path(run_id).exists())
         self.assertTrue(settings.leaderboard_path(run_id).exists())
+        self.assertTrue(settings.run_summary_path(run_id).exists())
+        self.assertTrue(settings.cost_breakdown_path(run_id).exists())
+        self.assertTrue(settings.cost_projections_path(run_id).exists())
         self.assertTrue(settings.report_path(run_id).exists())
         self.assertTrue(settings.cache_path.exists())
 
@@ -236,10 +239,27 @@ class ProspectPipelineIntegrationTests(unittest.TestCase):
         self.assertEqual(exported_rows[0]["manual_review_required"], "False")
         self.assertEqual(exported_rows[0]["validation_flags"], "None")
         self.assertEqual(exported_rows[0]["check_size_estimate"], "Unknown")
+        self.assertIn("run_total_cost_usd", exported_rows[0])
+        self.assertIn("run_effective_cost_per_contact_usd", exported_rows[0])
+        self.assertIn("run_enrichment_cost_usd", exported_rows[0])
         self.assertEqual(
             exported_rows[0]["insufficient_evidence_dimensions"],
             "sector_fit; halo_value; emerging_fit",
         )
+        with settings.run_summary_path(run_id).open("r", encoding="utf-8", newline="") as handle:
+            run_summary_rows = list(csv.DictReader(handle))
+        with settings.cost_breakdown_path(run_id).open("r", encoding="utf-8", newline="") as handle:
+            cost_breakdown_rows = list(csv.DictReader(handle))
+        with settings.cost_projections_path(run_id).open("r", encoding="utf-8", newline="") as handle:
+            cost_projection_rows = list(csv.DictReader(handle))
+
+        self.assertEqual(len(run_summary_rows), 1)
+        self.assertEqual(run_summary_rows[0]["run_id"], run_id)
+        self.assertEqual(run_summary_rows[0]["prospect_count"], "1")
+        self.assertEqual(len(cost_breakdown_rows), 2)
+        self.assertEqual(cost_breakdown_rows[0]["run_id"], run_id)
+        self.assertEqual(len(cost_projection_rows), 3)
+        self.assertEqual(cost_projection_rows[0]["run_id"], run_id)
 
 
 if __name__ == "__main__":

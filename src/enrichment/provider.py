@@ -319,10 +319,7 @@ class StarterEnrichmentProvider:
         return {
             "model": self.openai_model,
             "tools": [{"type": "web_search"}],
-            "include": [
-                "web_search_call.action.sources",
-                "message.output_text.annotations",
-            ],
+            "include": ["web_search_call.action.sources"],
             "input": [
                 {
                     "role": "system",

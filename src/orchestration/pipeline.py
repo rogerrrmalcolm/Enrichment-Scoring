@@ -139,11 +139,17 @@ class ProspectPipeline:
             )
             self._write_processed_output(run_id, results, cost_summary)
             self.dashboard.export_run_csv(run_id, self.settings.leaderboard_path(run_id))
+            self.dashboard.export_run_summary_csv(run_id, self.settings.run_summary_path(run_id))
+            self.dashboard.export_run_cost_breakdown_csv(run_id, self.settings.cost_breakdown_path(run_id))
+            self.dashboard.export_run_cost_projections_csv(run_id, self.settings.cost_projections_path(run_id))
             self.dashboard.export_run_html(run_id, self.settings.report_path(run_id))
             manifest["artifacts"] = {
                 "database": str(self.settings.database_path),
                 "processed_json": str(self.settings.processed_output_path(run_id)),
                 "leaderboard_csv": str(self.settings.leaderboard_path(run_id)),
+                "run_summary_csv": str(self.settings.run_summary_path(run_id)),
+                "cost_breakdown_csv": str(self.settings.cost_breakdown_path(run_id)),
+                "cost_projections_csv": str(self.settings.cost_projections_path(run_id)),
                 "html_report": str(self.settings.report_path(run_id)),
             }
             manifest["cost_summary"] = cost_summary

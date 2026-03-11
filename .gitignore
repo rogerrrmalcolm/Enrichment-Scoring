@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.sqlite3
+local.env.ps1
 
 data/exports/
 data/processed/
