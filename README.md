@@ -233,6 +233,11 @@ Dimensions:
 - Halo & Strategic Value: `20%`
 - Emerging Manager Fit: `15%`
 
+Plain-language meaning of the key dimensions:
+
+- `Sector & Mandate Fit` asks whether the organization looks like the right kind of LP for PaceZero's strategy. A high score requires evidence that the prospect behaves like an allocator into external managers and also has sustainability, impact, ESG, climate, or mission-aligned investment language that fits PaceZero's fundraising target.
+- `Halo & Strategic Value` asks whether winning the prospect would create signaling value with other LPs. A high score means the name is institutionally credible, visible, and likely to help validate PaceZero with other allocators during fundraising.
+
 The engine also encodes important rubric rules:
 
 - LPs are not the same as GPs, brokers, lenders, or service providers
