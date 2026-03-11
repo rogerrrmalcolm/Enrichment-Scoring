@@ -11,6 +11,106 @@ The pipeline supports two enrichment modes:
 - Offline heuristic mode: runs without external APIs and keeps the project runnable in a local environment.
 - Live AI-powered web enrichment mode: uses the OpenAI Responses API with `web_search` to gather public information, cite sources, and populate the enrichment fields with real web-backed evidence.
 
+## How To Run
+
+### 1. Create and activate a virtual environment
+
+PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+### 2. Optional: install API dependencies
+
+The pipeline itself does not require FastAPI, but the API server does.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install fastapi uvicorn
+```
+
+### 3. Put the input CSV in place
+
+Expected input file:
+
+```text
+data/incoming/challenge_contacts.csv
+```
+
+### 4. Run the pipeline
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_pipeline.py
+```
+
+Outputs will be written to:
+
+- `storage/db/prospects.sqlite3`
+- `data/processed/<run_id>_results.json`
+- `data/exports/<run_id>_leaderboard.csv`
+- `data/exports/<run_id>_run_summary.csv`
+- `data/exports/<run_id>_cost_breakdown.csv`
+- `data/exports/<run_id>_cost_projections.csv`
+- `data/exports/<run_id>_report.html`
+- `storage/state/<run_id>.json`
+
+The CLI prints all of these artifact paths when the run completes, plus the estimated API cost and the enrichment-mode mix for the leaderboard export.
+
+### 5. Run the API
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_api.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+## Live Web Enrichment Setup
+
+To enable the real AI-powered web enrichment path, set these environment variables before running the pipeline:
+
+```powershell
+$env:OPENAI_API_KEY="your_openai_key"
+$env:PACEZERO_ENABLE_LIVE_ENRICHMENT="true"
+```
+
+To keep the key out of source files, you can store it in a local PowerShell env file:
+
+```powershell
+. .\local.env.ps1
+.\.venv\Scripts\python.exe scripts\run_pipeline.py
+```
+
+Notes:
+
+- `local.env.ps1` is ignored by git
+- create or edit `local.env.ps1` locally with:
+
+  ```powershell
+  $env:OPENAI_API_KEY="your_openai_key"
+  $env:PACEZERO_ENABLE_LIVE_ENRICHMENT="true"
+  ```
+
+- the leading `. ` loads the environment variables into the current PowerShell session
+
+Optional settings:
+
+```powershell
+$env:PACEZERO_OPENAI_MODEL="gpt-4.1-mini"
+$env:PACEZERO_OPENAI_TIMEOUT_SECONDS="45"
+```
+
+Notes:
+
+- If live enrichment is disabled, the project still runs using the offline heuristic provider.
+- If the live call fails, the provider falls back to the offline path and records the error in the enrichment payload.
+- A live run can still contain a small number of heuristic fallback rows if individual enrichment calls fail.
+- The easiest verification step is to check the exported leaderboard CSV and confirm `enrichment_mode` contains `live_openai_web_search`.
+
 ## Stack
 
 ### Core runtime
@@ -297,106 +397,6 @@ Allocation ranges:
 - [src/persistence/repository.py](src/persistence/repository.py)
 - [src/dashboard/service.py](src/dashboard/service.py)
 - [src/api.py](src/api.py)
-
-## How To Run
-
-### 1. Create and activate a virtual environment
-
-PowerShell:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-### 2. Optional: install API dependencies
-
-The pipeline itself does not require FastAPI, but the API server does.
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install fastapi uvicorn
-```
-
-### 3. Put the input CSV in place
-
-Expected input file:
-
-```text
-data/incoming/challenge_contacts.csv
-```
-
-### 4. Run the pipeline
-
-```powershell
-.\.venv\Scripts\python.exe scripts\run_pipeline.py
-```
-
-Outputs will be written to:
-
-- `storage/db/prospects.sqlite3`
-- `data/processed/<run_id>_results.json`
-- `data/exports/<run_id>_leaderboard.csv`
-- `data/exports/<run_id>_run_summary.csv`
-- `data/exports/<run_id>_cost_breakdown.csv`
-- `data/exports/<run_id>_cost_projections.csv`
-- `data/exports/<run_id>_report.html`
-- `storage/state/<run_id>.json`
-
-The CLI prints all of these artifact paths when the run completes, plus the estimated API cost and the enrichment-mode mix for the leaderboard export.
-
-### 5. Run the API
-
-```powershell
-.\.venv\Scripts\python.exe scripts\run_api.py
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8000/docs
-```
-
-## Live Web Enrichment Setup
-
-To enable the real AI-powered web enrichment path, set these environment variables before running the pipeline:
-
-```powershell
-$env:OPENAI_API_KEY="your_openai_key"
-$env:PACEZERO_ENABLE_LIVE_ENRICHMENT="true"
-```
-
-To keep the key out of source files, you can store it in a local PowerShell env file:
-
-```powershell
-. .\local.env.ps1
-.\.venv\Scripts\python.exe scripts\run_pipeline.py
-```
-
-Notes:
-
-- `local.env.ps1` is ignored by git
-- create or edit `local.env.ps1` locally with:
-
-  ```powershell
-  $env:OPENAI_API_KEY="your_openai_key"
-  $env:PACEZERO_ENABLE_LIVE_ENRICHMENT="true"
-  ```
-
-- the leading `. ` loads the environment variables into the current PowerShell session
-
-Optional settings:
-
-```powershell
-$env:PACEZERO_OPENAI_MODEL="gpt-4.1-mini"
-$env:PACEZERO_OPENAI_TIMEOUT_SECONDS="45"
-```
-
-Notes:
-
-- If live enrichment is disabled, the project still runs using the offline heuristic provider.
-- If the live call fails, the provider falls back to the offline path and records the error in the enrichment payload.
-- A live run can still contain a small number of heuristic fallback rows if individual enrichment calls fail.
-- The easiest verification step is to check the exported leaderboard CSV and confirm `enrichment_mode` contains `live_openai_web_search`.
 
 ## Environment Variables
 
