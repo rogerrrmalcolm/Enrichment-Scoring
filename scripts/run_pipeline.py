@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import argparse
 import csv
+from dataclasses import replace
 import sys
 from pathlib import Path
 
@@ -14,8 +16,11 @@ from src.orchestration.pipeline import ProspectPipeline
 from src.utils.logging import configure_logging
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     settings = AppSettings.from_root(ROOT)
+    if args.input is not None:
+        settings = replace(settings, input_csv=args.input)
     configure_logging(settings.log_dir)
     pipeline = ProspectPipeline(settings)
     run_id = pipeline.run()
@@ -25,6 +30,7 @@ def main() -> int:
     enrichment_modes = _count_enrichment_modes(settings.leaderboard_path(run_id))
 
     print(f"Completed run: {run_id}")
+    print(f"Input CSV: {settings.input_csv}")
     print(f"Database: {settings.database_path}")
     print(f"Top prospects exported to: {settings.leaderboard_path(run_id)}")
     print(f"Run summary CSV: {settings.run_summary_path(run_id)}")
@@ -43,6 +49,33 @@ def main() -> int:
             f"{row['organization']} | {row['contact_name']}"
         )
     return 0
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run the prospect enrichment pipeline.",
+    )
+    parser.add_argument(
+        "--input",
+        type=Path,
+        help="Path to a CSV file. Defaults to data/incoming/challenge_contacts.csv.",
+    )
+    args = parser.parse_args(argv)
+    if args.input is not None:
+        args.input = _resolve_input_csv(args.input)
+        if not args.input.exists():
+            parser.error(f"input CSV not found: {args.input}")
+        if not args.input.is_file():
+            parser.error(f"input CSV must be a file: {args.input}")
+    return args
+
+
+def _resolve_input_csv(input_path: Path, cwd: Path | None = None) -> Path:
+    base_dir = cwd or Path.cwd()
+    expanded = input_path.expanduser()
+    if expanded.is_absolute():
+        return expanded.resolve(strict=False)
+    return (base_dir / expanded).resolve(strict=False)
 
 
 def _count_enrichment_modes(leaderboard_path: Path) -> dict[str, int]:

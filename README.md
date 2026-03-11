@@ -39,12 +39,18 @@ If you also want the FastAPI server, install the optional API dependencies:
 .\.venv\Scripts\python.exe -m pip install fastapi uvicorn
 ```
 
-### 3. Put the input CSV in place
+### 3. Choose an input CSV
 
-Expected input file:
+Default input file:
 
 ```text
 data/incoming/challenge_contacts.csv
+```
+
+You do not need to rename your own CSV. Pass it directly with `--input`:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\run_pipeline.py --input .\data\incoming\my_contacts.csv
 ```
 
 ### 4. Run the pipeline
