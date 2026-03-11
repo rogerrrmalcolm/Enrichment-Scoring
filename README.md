@@ -22,9 +22,18 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-### 2. Optional: install API dependencies
+### 2. Install dependencies
 
-The pipeline itself does not require FastAPI, but the API server does.
+The pipeline, offline enrichment mode, and the full `unittest` suite use only the Python standard library.
+
+No extra packages are required to run:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+.\.venv\Scripts\python.exe scripts\run_pipeline.py
+```
+
+If you also want the FastAPI server, install the optional API dependencies:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install fastapi uvicorn
